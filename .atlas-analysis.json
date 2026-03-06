@@ -1,0 +1,143 @@
+{
+  "projectType": "sdk-library",
+  "projectName": "Wire",
+  "projectDescription": "Native C++ library for generating and managing utility pole and power line networks with automatic layout and incremental recalculation",
+  "theme": "aspen",
+  "primaryColor": "#4595db",
+  "lightColor": "#5ebf9e",
+  "darkColor": "#0494dc",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/architecture",
+              "concepts/data-model",
+              "concepts/entity-layer",
+              "concepts/dirty-tracking",
+              "concepts/coordinate-system"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/building-networks",
+              "guides/editing-entities",
+              "guides/generation-workflow",
+              "guides/incremental-recalc",
+              "guides/validation"
+            ]
+          },
+          {
+            "group": "Viewer",
+            "pages": [
+              "viewer/overview",
+              "viewer/usage",
+              "viewer/debugging"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Core State",
+            "pages": [
+              "api/core-state",
+              "api/core-view",
+              "api/edit-result"
+            ]
+          },
+          {
+            "group": "Entity Types",
+            "pages": [
+              "api/entities/pole",
+              "api/entities/port",
+              "api/entities/anchor",
+              "api/entities/bundle",
+              "api/entities/span",
+              "api/entities/attachment"
+            ]
+          },
+          {
+            "group": "Editing Operations",
+            "pages": [
+              "api/operations/add-entities",
+              "api/operations/move-transform",
+              "api/operations/delete-split",
+              "api/operations/generation"
+            ]
+          },
+          {
+            "group": "Cache & Runtime",
+            "pages": [
+              "api/cache/curve-cache",
+              "api/cache/bounds-cache",
+              "api/cache/visual-cache",
+              "api/cache/runtime-state"
+            ]
+          },
+          {
+            "group": "Types & Enums",
+            "pages": [
+              "api/types/geometry-types",
+              "api/types/enums",
+              "api/types/templates"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Game engine-independent C++ core library",
+    "Entity-based network model (Pole, Port, Span, Bundle)",
+    "Automatic connection generation from path specifications",
+    "Incremental dirty tracking and recalculation",
+    "Port slot template system with automatic layout",
+    "Support for corner angle correction and multi-conductor bundles",
+    "Lightweight viewer for development and debugging",
+    "Validation system for topology and connection integrity"
+  ],
+  "publicApiSurface": [
+    "wire::core::CoreState",
+    "wire::core::CoreView",
+    "wire::core::Pole",
+    "wire::core::Port",
+    "wire::core::Anchor",
+    "wire::core::Bundle",
+    "wire::core::Span",
+    "wire::core::Attachment",
+    "CoreState::AddPole()",
+    "CoreState::AddPort()",
+    "CoreState::AddSpan()",
+    "CoreState::AddBundle()",
+    "CoreState::MovePole()",
+    "CoreState::MovePort()",
+    "CoreState::DeleteSpan()",
+    "CoreState::SplitSpan()",
+    "CoreState::AddConnectionByPole()",
+    "CoreState::GenerateFromBackboneSpec()",
+    "CoreState::Commit()",
+    "CoreState::ValidateFast()",
+    "CoreState::GetPoleDetail()",
+    "CoreState::GetSpansByBundle()",
+    "wire::core::BackboneSpec",
+    "wire::core::BackboneResult",
+    "wire::core::EditResult<T>",
+    "wire::core::ValidationResult",
+    "wire::core::CommitResult"
+  ]
+}
