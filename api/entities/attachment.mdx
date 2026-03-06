@@ -1,0 +1,88 @@
+---
+title: "Attachment"
+description: "Entity-layer span attachment for hardware mounted along wire spans."
+---
+
+## Overview
+
+The `Attachment` struct represents hardware devices mounted along a wire span at a specific parametric position. Attachments include items like dampers, spacers, and markers that are installed on the wires between poles.
+
+## Structure Definition
+
+```cpp
+struct Attachment {
+  ObjectId id = kInvalidObjectId;
+  std::string display_id{};
+  ObjectId span_id = kInvalidObjectId;
+  double t = 0.0;
+  AttachmentKind kind = AttachmentKind::kGeneric;
+  double offset_m = 0.0;
+};
+```
+
+## Fields
+
+<ResponseField name="id" type="ObjectId" default="kInvalidObjectId">
+  Unique identifier for the attachment entity.
+</ResponseField>
+
+<ResponseField name="display_id" type="std::string">
+  Human-readable identifier displayed in the UI.
+</ResponseField>
+
+<ResponseField name="span_id" type="ObjectId" default="kInvalidObjectId">
+  Reference to the parent span that this attachment is mounted on.
+</ResponseField>
+
+<ResponseField name="t" type="double" default="0.0">
+  Parametric position along the span (0.0 = port_a, 1.0 = port_b). For example, t=0.5 places the attachment at the midpoint of the span.
+</ResponseField>
+
+<ResponseField name="kind" type="AttachmentKind" default="kGeneric">
+  Type of attachment hardware. See [AttachmentKind enum](#attachmentkind-enum).
+</ResponseField>
+
+<ResponseField name="offset_m" type="double" default="0.0">
+  Additional offset in meters from the parametric position, useful for fine-tuning placement.
+</ResponseField>
+
+## Related Types
+
+### AttachmentKind Enum
+
+```cpp
+enum class AttachmentKind : std::uint8_t {
+  kGeneric = 0,
+  kDamper = 1,
+  kSpacer = 2,
+  kMarker = 3,
+};
+```
+
+Classifies attachments by their functional type:
+- **kGeneric**: Default/unspecified attachment
+- **kDamper**: Vibration damper (reduces aeolian vibration in wires)
+- **kSpacer**: Spacer device (maintains distance between bundled conductors)
+- **kMarker**: Visual marker (e.g., aerial marker balls for visibility)
+
+## Parametric Positioning
+
+Attachments use a parametric coordinate system along the span:
+
+- **t = 0.0**: Attachment is at the first port (port_a)
+- **t = 0.5**: Attachment is at the midpoint between the two ports
+- **t = 1.0**: Attachment is at the second port (port_b)
+- **t values**: Can be any value between 0.0 and 1.0 for precise positioning
+
+The parametric position follows the geometric path of the span, automatically accounting for wire sag and catenary shape.
+
+## Usage Notes
+
+- Attachments belong to exactly one [Span](/api/entities/span)
+- The `t` parameter is the primary positioning mechanism, with `offset_m` providing fine adjustment
+- Attachment positions update automatically if the span endpoints move
+- Common use cases:
+  - **Dampers**: Often placed at specific distances from poles (e.g., t=0.1 or t=0.9)
+  - **Spacers**: Distributed along bundle conductors (e.g., t=0.33, t=0.67 for three spacers)
+  - **Markers**: Typically at high visibility points (e.g., t=0.5 at span midpoint)
+- Multiple attachments can be placed on the same span at different t values

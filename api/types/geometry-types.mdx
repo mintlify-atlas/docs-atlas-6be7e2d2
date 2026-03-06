@@ -1,0 +1,170 @@
+---
+title: 'Geometry Types'
+description: 'Core geometric types for 3D coordinates, transformations, and spatial data'
+---
+
+## Overview
+
+The Wire library provides fundamental geometric types for representing 3D positions, transformations, frames of reference, and bounding volumes. These types are defined in `wire/core/types.hpp`.
+
+## Vec3d
+
+A 3D vector with double-precision floating-point components.
+
+**Definition:** `types.hpp:5-9`
+
+<ResponseField name="x" type="double" default="0.0">
+  X-coordinate component
+</ResponseField>
+
+<ResponseField name="y" type="double" default="0.0">
+  Y-coordinate component
+</ResponseField>
+
+<ResponseField name="z" type="double" default="0.0">
+  Z-coordinate component
+</ResponseField>
+
+### Operators
+
+Vec3d supports standard arithmetic operators:
+
+```cpp
+Vec3d operator+(const Vec3d& a, const Vec3d& b);  // Vector addition
+Vec3d operator-(const Vec3d& a, const Vec3d& b);  // Vector subtraction
+```
+
+### Example
+
+```cpp
+wire::core::Vec3d position{10.0, 20.0, 5.0};
+wire::core::Vec3d offset{1.0, 0.0, 0.0};
+wire::core::Vec3d result = position + offset;  // {11.0, 20.0, 5.0}
+```
+
+---
+
+## Transformd
+
+A complete 3D transformation including position, rotation, and scale.
+
+**Definition:** `types.hpp:15-19`
+
+<ResponseField name="position" type="Vec3d" default="{0, 0, 0}">
+  World-space position of the object
+</ResponseField>
+
+<ResponseField name="rotation_euler_deg" type="Vec3d" default="{0, 0, 0}">
+  Euler rotation angles in degrees (X, Y, Z)
+</ResponseField>
+
+<ResponseField name="scale" type="Vec3d" default="{1, 1, 1}">
+  Scale factors along each axis
+</ResponseField>
+
+### Example
+
+```cpp
+wire::core::Transformd transform;
+transform.position = {100.0, 50.0, 0.0};
+transform.rotation_euler_deg = {0.0, 0.0, 45.0};  // 45-degree yaw
+transform.scale = {1.0, 1.0, 1.5};  // Scaled 1.5x in Z
+```
+
+---
+
+## Frame3d
+
+A local coordinate frame defined by an origin and three orthogonal basis vectors.
+
+**Definition:** `types.hpp:21-26`
+
+<ResponseField name="origin" type="Vec3d" default="{0, 0, 0}">
+  Origin point of the local coordinate frame
+</ResponseField>
+
+<ResponseField name="forward" type="Vec3d" default="{1, 0, 0}">
+  Forward direction vector (typically +X axis)
+</ResponseField>
+
+<ResponseField name="right" type="Vec3d" default="{0, 1, 0}">
+  Right direction vector (typically +Y axis)
+</ResponseField>
+
+<ResponseField name="up" type="Vec3d" default="{0, 0, 1}">
+  Up direction vector (typically +Z axis)
+</ResponseField>
+
+### Usage
+
+Frame3d is commonly used to define the local orientation of ports and connection endpoints:
+
+```cpp
+wire::core::Frame3d port_direction;
+port_direction.origin = pole_position;
+port_direction.forward = {1.0, 0.0, 0.0};  // Facing east
+port_direction.up = {0.0, 0.0, 1.0};       // Up is +Z
+```
+
+---
+
+## AABBd
+
+Axis-Aligned Bounding Box for spatial queries and collision detection.
+
+**Definition:** `types.hpp:28-31`
+
+<ResponseField name="min" type="Vec3d" default="{0, 0, 0}">
+  Minimum corner of the bounding box (lower-left-back)
+</ResponseField>
+
+<ResponseField name="max" type="Vec3d" default="{0, 0, 0}">
+  Maximum corner of the bounding box (upper-right-front)
+</ResponseField>
+
+### Example
+
+```cpp
+wire::core::AABBd bounds;
+bounds.min = {-10.0, -10.0, 0.0};
+bounds.max = {10.0, 10.0, 15.0};
+
+// Check if a point is inside
+wire::core::Vec3d point{5.0, 5.0, 7.0};
+bool inside = (point.x >= bounds.min.x && point.x <= bounds.max.x &&
+               point.y >= bounds.min.y && point.y <= bounds.max.y &&
+               point.z >= bounds.min.z && point.z <= bounds.max.z);
+```
+
+---
+
+## RoadSegment
+
+A polyline representing a road path used for pole generation workflows.
+
+**Definition:** `workflow_types.hpp:14-17`
+
+<ResponseField name="id" type="RoadId" default="0">
+  Unique identifier for this road segment
+</ResponseField>
+
+<ResponseField name="polyline" type="std::vector<Vec3d>" default="{}">
+  Ordered list of 3D points defining the road centerline path
+</ResponseField>
+
+### Usage
+
+RoadSegment is used as input to pole generation commands:
+
+```cpp
+wire::core::RoadSegment road;
+road.id = 1;
+road.polyline = {
+  {0.0, 0.0, 0.0},
+  {100.0, 0.0, 0.0},
+  {200.0, 50.0, 0.0}
+};
+
+// Generate poles along the road
+auto result = state.GeneratePolesAlongRoad(road, 50.0, pole_type_id);
+```

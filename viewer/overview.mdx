@@ -1,0 +1,151 @@
+---
+title: Viewer Overview
+description: What the Wire viewer is and why it exists
+---
+
+## Purpose
+
+The Wire viewer is a lightweight development tool built with **raylib** and **ImGui** for visualizing, editing, and verifying the Wire C++ core library. It serves as a validation environment before integration with game engines like Unreal Engine.
+
+<Info>
+The viewer is a development tool, not a production renderer. Its primary purpose is to verify core functionality and provide rapid iteration during development.
+</Info>
+
+## Key Features
+
+### Real-time Visualization
+
+- **Poles**: Rendered as wireframe cylinders with color-coded selection states
+- **Ports**: Spheres colored by placement mode (Manual = Magenta, Auto = Orange)
+- **Spans**: Lines connecting ports, with color indicating dirty state
+- **Bundles**: Multiple wire routing visualization
+- **Visual Parts**: Support arms and insulators (raylib rendering)
+
+### Interactive Editing
+
+- **DrawPath Input**: Click to place path points, generate pole networks from paths
+- **Manual Placement**: Add individual poles, ports, and spans
+- **Connection Tools**: Connect poles with configurable categories and contexts
+- **Transform Editing**: Move poles, ports, and anchors in 3D space
+
+### Debug Visualization
+
+- **Dirty State Display**: Span colors indicate dirty bits (Topology=Purple, Geometry=Yellow, Bounds=Blue, Render=Red, Raycast=Green)
+- **AABB Display**: Toggle whole and segment bounding boxes
+- **Debug Labels**: Display entity IDs and properties
+- **Generation Info**: Track which entities were auto-generated vs manually placed
+
+## Architecture
+
+### Engine-Agnostic Core
+
+The viewer consumes the Wire core library through a clean API boundary:
+
+```cpp
+wire::core::CoreState
+```
+
+All operations (Add/Move/Delete) go through the `CoreState` API, ensuring the core library remains independent of any rendering technology.
+
+### Coordinate System
+
+The viewer handles UE coordinate conversion:
+
+- **Core (UE)**: Right-handed, Z-up (X=forward, Y=right, Z=up)
+- **Raylib**: Right-handed, Y-up (X=right, Y=up, Z=forward)
+
+Conversion functions translate between systems:
+
+```cpp
+Vector3 ToRaylib(const wire::core::Vec3d& ue_xyz)
+wire::core::Vec3d FromRaylib(const Vector3& raylib_xyz)
+```
+
+## Technology Stack
+
+### Rendering: raylib
+
+- Lightweight 3D/2D graphics library
+- Simple API for primitives (cylinders, spheres, lines)
+- Built-in camera controls
+- Cross-platform (Windows, Linux, macOS)
+
+### UI: Dear ImGui
+
+- Immediate-mode GUI framework
+- Integrated via `rlImGui` bridge
+- Window-based tools (Toolbox, Inspector, Outliner, Diagnostics)
+- Real-time property editing
+
+### Build System
+
+```powershell
+cmake -S . -B build -DWIRE_BUILD_VIEWER=ON
+cmake --build build --config Debug --target wire_viewer
+```
+
+The viewer is an optional build target controlled by the `WIRE_BUILD_VIEWER` flag.
+
+## Design Principles
+
+### Minimal Dependencies
+
+The viewer uses only:
+- raylib (rendering)
+- ImGui (UI)
+- Wire core library (data model)
+- Standard C++17
+
+No heavy game engine dependencies ensure fast build times and simple deployment.
+
+### Inspection-First
+
+Every edit operation provides:
+- Visual feedback (selection highlighting, color coding)
+- Text feedback (log messages)
+- Debug data (dirty bits, version numbers, generation sessions)
+
+### Rapid Iteration
+
+The viewer supports:
+- **Auto-recalculation**: Optional automatic dirty processing
+- **Live editing**: Change settings and see results immediately
+- **Session regeneration**: Modify existing generated networks
+- **Repro captures**: Save complete state for bug reports
+
+## When to Use the Viewer
+
+### Development Scenarios
+
+<CardGroup cols={2}>
+  <Card title="Core Development" icon="code">
+    Test new core features, verify algorithms, debug generation logic
+  </Card>
+  <Card title="Visual Verification" icon="eye">
+    Check pole placement, wire routing, corner handling, bundle layout
+  </Card>
+  <Card title="Performance Testing" icon="gauge">
+    Measure dirty propagation, recalc costs, generation performance
+  </Card>
+  <Card title="Bug Reproduction" icon="bug">
+    Capture exact input state, share repro files, verify fixes
+  </Card>
+</CardGroup>
+
+### Not Suitable For
+
+- Production rendering (use UE integration instead)
+- High-fidelity visuals (basic primitives only)
+- Large-scale networks (no culling/LOD in viewer)
+- End-user tools (developer-focused UI)
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Run the Viewer" icon="play" href="/viewer/usage">
+    Learn how to build and run the viewer application
+  </Card>
+  <Card title="Debug Features" icon="microscope" href="/viewer/debugging">
+    Explore debugging overlays and diagnostic tools
+  </Card>
+</CardGroup>

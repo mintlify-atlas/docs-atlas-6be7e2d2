@@ -1,0 +1,387 @@
+---
+title: Building Pole Networks from Paths
+description: Learn how to construct utility pole networks from path specifications using Wire's generation API
+---
+
+## Overview
+
+Wire provides a flexible path-based generation system that creates complete pole and span networks from input polylines. This guide covers the workflow for building networks from scratch, from simple point-to-point lines to complex multi-bundle backbone networks.
+
+## Basic Network Creation
+
+### Simple Line Generation
+
+The simplest way to create a pole network is using `GenerateSimpleLine()`, which places poles at regular intervals along a path:
+
+```cpp
+#include <wire/core/core_state.hpp>
+
+using namespace wire::core;
+
+// Create the core state
+CoreState state;
+
+// Define your path as a polyline
+RoadSegment road;
+road.id = 1;
+road.polyline = {
+  {0.0, 0.0, 0.0},
+  {100.0, 0.0, 0.0},
+  {200.0, 50.0, 0.0},
+  {300.0, 50.0, 0.0}
+};
+
+// Generate poles and spans
+auto result = state.GenerateSimpleLine(
+  road,
+  30.0,                               // 30m spacing
+  1,                                  // pole_type_id
+  ConnectionCategory::kLowVoltage     // category
+);
+
+if (result.ok) {
+  // Access generated IDs
+  for (ObjectId pole_id : result.value.pole_ids) {
+    // Process each pole
+  }
+  for (ObjectId span_id : result.value.span_ids) {
+    // Process each span
+  }
+  
+  // Commit changes to trigger recalculation
+  CommitResult commit = state.Commit();
+  if (commit.validation.ok()) {
+    // Network is valid and ready to use
+  }
+} else {
+  std::cerr << "Generation failed: " << result.error << std::endl;
+}
+```
+
+### Creating Poles from Specific Points
+
+For more control over pole placement, use `GenerateSimpleLineFromPoints()` to place poles exactly at path vertices:
+
+```cpp
+RoadSegment precise_path;
+precise_path.polyline = {
+  {0.0, 0.0, 0.0},      // Pole at start
+  {75.0, 0.0, 0.0},     // Pole here
+  {150.0, 25.0, 0.0},   // Pole at corner
+  {200.0, 25.0, 0.0}    // Pole at end
+};
+
+auto result = state.GenerateSimpleLineFromPoints(
+  precise_path,
+  1,                                  // pole_type_id
+  ConnectionCategory::kLowVoltage
+);
+```
+
+## Multi-Bundle Backbone Generation
+
+### Using BackboneSpec (Recommended)
+
+For production workflows, use `GenerateFromBackboneSpec()` which supports multiple wire bundles and advanced configuration:
+
+<Steps>
+  <Step title="Define the Path">
+    Create a `BackboneSpec` with your polyline path:
+    
+    ```cpp
+    BackboneSpec spec;
+    spec.path.polyline = {
+      {0.0, 0.0, 0.0},
+      {100.0, 0.0, 0.0},
+      {200.0, 50.0, 0.0}
+    };
+    spec.interval_m = 40.0;
+    spec.pole_type_id = 1;
+    ```
+  </Step>
+  
+  <Step title="Configure Bundles">
+    Add one or more bundle specifications:
+    
+    ```cpp
+    // High voltage bundle
+    BackboneBundleSpec hv_bundle;
+    hv_bundle.bundle_template_id = BundleKind::kHighVoltage;
+    hv_bundle.layer = SpanLayer::kHighVoltage;
+    hv_bundle.count = 3;  // 3-phase
+    spec.bundles.push_back(hv_bundle);
+    
+    // Communication bundle
+    BackboneBundleSpec comm_bundle;
+    comm_bundle.bundle_template_id = BundleKind::kCommunication;
+    comm_bundle.layer = SpanLayer::kCommunication;
+    comm_bundle.count = 1;
+    spec.bundles.push_back(comm_bundle);
+    ```
+  </Step>
+  
+  <Step title="Set Direction Mode">
+    Control path traversal direction:
+    
+    ```cpp
+    // Auto-select based on cost evaluation
+    spec.direction_mode = PathDirectionMode::kAuto;
+    
+    // Or force a specific direction
+    spec.direction_mode = PathDirectionMode::kForward;
+    ```
+  </Step>
+  
+  <Step title="Generate the Network">
+    Execute generation and commit:
+    
+    ```cpp
+    auto result = state.GenerateFromBackboneSpec(spec);
+    
+    if (result.ok) {
+      ObjectId bundle_id = result.value.bundle_id;
+      std::uint64_t session_id = result.value.generation_session_id;
+      
+      // Commit to finalize
+      state.Commit();
+    }
+    ```
+  </Step>
+</Steps>
+
+### Pole Placement Options
+
+Control how poles are created and reused during generation:
+
+```cpp
+BackbonePolePlacementOptions options;
+options.pin_endpoints = true;        // Keep endpoints as PlacementMode::kManual
+options.pin_vertices = false;        // Vertices remain auto-placed
+options.restrict_reuse_to_session = true;  // Only reuse poles from this session
+options.reuse_session_id = previous_session_id;
+
+spec.pole_placement = options;
+```
+
+## Manual Network Construction
+
+### Building Piece by Piece
+
+For fine-grained control, manually create poles, ports, and spans:
+
+<Steps>
+  <Step title="Create Poles">
+    ```cpp
+    Transformd transform_a;
+    transform_a.position = {0.0, 0.0, 0.0};
+    transform_a.rotation_euler_deg = {0.0, 0.0, 0.0};
+    
+    auto pole_a = state.AddPole(
+      transform_a,
+      12.0,                    // height_m
+      "Pole-A",               // name
+      PoleKind::kWood,
+      PlacementMode::kManual
+    );
+    
+    Transformd transform_b;
+    transform_b.position = {50.0, 0.0, 0.0};
+    auto pole_b = state.AddPole(transform_b, 12.0, "Pole-B");
+    ```
+  </Step>
+  
+  <Step title="Create Ports">
+    ```cpp
+    // Port on first pole
+    auto port_a = state.AddPort(
+      pole_a.value,
+      {0.0, 0.0, 10.0},        // world_position
+      PortKind::kPower,
+      PortLayer::kLowVoltage
+    );
+    
+    // Port on second pole
+    auto port_b = state.AddPort(
+      pole_b.value,
+      {50.0, 0.0, 10.0},
+      PortKind::kPower,
+      PortLayer::kLowVoltage
+    );
+    ```
+  </Step>
+  
+  <Step title="Create Bundle">
+    ```cpp
+    auto bundle = state.AddBundle(
+      3,                       // conductor_count
+      0.3,                     // phase_spacing_m
+      BundleKind::kLowVoltage
+    );
+    ```
+  </Step>
+  
+  <Step title="Connect with Span">
+    ```cpp
+    auto span = state.AddSpan(
+      port_a.value,
+      port_b.value,
+      SpanKind::kDistribution,
+      SpanLayer::kLowVoltage,
+      bundle.value
+    );
+    ```
+  </Step>
+  
+  <Step title="Commit Changes">
+    ```cpp
+    CommitResult result = state.Commit();
+    
+    if (result.validation.has_errors()) {
+      for (const auto& issue : result.validation.issues) {
+        std::cerr << issue.message << std::endl;
+      }
+    }
+    ```
+  </Step>
+</Steps>
+
+## High-Level Connection API
+
+### Connecting Poles by ID
+
+Use `AddConnectionByPole()` for automatic port selection and slot assignment:
+
+```cpp
+CoreState::AddConnectionByPoleOptions options;
+options.span_kind = SpanKind::kDistribution;
+options.span_layer = SpanLayer::kLowVoltage;
+options.bundle_template_id = BundleKind::kLowVoltage;
+options.use_bundle_template = true;
+options.allow_generate_port = true;
+
+auto result = state.AddConnectionByPole(
+  pole_a_id,
+  pole_b_id,
+  ConnectionCategory::kLowVoltage,
+  options
+);
+
+if (result.ok) {
+  ObjectId span_id = result.value.span_id;
+  ObjectId port_a = result.value.port_a_id;
+  ObjectId port_b = result.value.port_b_id;
+  int slot_a = result.value.slot_a_id;
+  int slot_b = result.value.slot_b_id;
+}
+```
+
+### Creating Service Drops
+
+Generate drops from poles or spans to target positions:
+
+```cpp
+// Drop from a pole
+auto drop = state.AddDropFromPole(
+  source_pole_id,
+  {150.0, 25.0, 5.0},           // target_world_position
+  ConnectionCategory::kDrop
+);
+
+// Drop from a span at parametric position
+auto span_drop = state.AddDropFromSpan(
+  source_span_id,
+  0.5,                          // t (midpoint)
+  {150.0, 25.0, 5.0},
+  ConnectionCategory::kDrop
+);
+```
+
+## Querying the Network
+
+### Reading Generated Data
+
+Access the network through `CoreView`:
+
+```cpp
+CoreView view = state.view();
+
+// Iterate all poles
+for (const auto& [id, pole] : view.poles().objects()) {
+  std::cout << "Pole " << pole.display_id 
+            << " at (" << pole.world_transform.position.x 
+            << ", " << pole.world_transform.position.y << ")\n";
+}
+
+// Get spans for a bundle
+std::vector<ObjectId> span_ids = state.GetSpansByBundle(bundle_id);
+
+// Get detailed pole info
+PoleDetailInfo info = state.GetPoleDetail(pole_id);
+const Pole* pole = info.pole;
+const PoleTypeDefinition* type = info.pole_type;
+for (const Port* port : info.owned_ports) {
+  // Process ports attached to this pole
+}
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Always Commit After Edits">
+    Call `Commit()` after editing operations to trigger geometry recalculation and validation:
+    
+    ```cpp
+    state.AddPole(...);
+    state.AddPole(...);
+    state.AddSpan(...);
+    
+    // Finalize all pending changes
+    CommitResult result = state.Commit();
+    ```
+  </Accordion>
+  
+  <Accordion title="Use BackboneSpec for Production">
+    The `GenerateFromBackboneSpec()` API is the canonical generation method. Avoid deprecated APIs like `GenerateGroupedLine()`.
+  </Accordion>
+  
+  <Accordion title="Check EditResult Status">
+    Always verify `EditResult::ok` before using values:
+    
+    ```cpp
+    auto result = state.AddPole(...);
+    if (!result.ok) {
+      std::cerr << "Error: " << result.error << std::endl;
+      return;
+    }
+    ObjectId id = result.value;
+    ```
+  </Accordion>
+  
+  <Accordion title="Leverage ChangeSet for Tracking">
+    `EditResult` includes a `change_set` with created, updated, and dirty span IDs:
+    
+    ```cpp
+    auto result = state.MovePole(pole_id, new_transform);
+    for (ObjectId dirty_span : result.change_set.dirty_span_ids) {
+      // These spans need recalculation
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Editing Entities" icon="pen" href="/guides/editing-entities">
+    Learn how to modify existing poles, ports, and spans
+  </Card>
+  <Card title="Generation Workflow" icon="wand-magic-sparkles" href="/guides/generation-workflow">
+    Deep dive into BackboneSpec and generation APIs
+  </Card>
+  <Card title="Validation" icon="shield-check" href="/guides/validation">
+    Understand validation and error handling
+  </Card>
+  <Card title="Incremental Recalc" icon="arrows-rotate" href="/guides/incremental-recalc">
+    Master dirty tracking for efficient updates
+  </Card>
+</CardGroup>

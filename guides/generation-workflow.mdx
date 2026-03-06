@@ -1,0 +1,532 @@
+---
+title: Generation Workflow with BackboneSpec
+description: Master Wire's canonical path-based generation system for creating complex multi-bundle networks
+---
+
+## Overview
+
+Wire's `GenerateFromBackboneSpec()` API is the recommended method for procedural network generation. It supports:
+
+- Multiple wire bundles with different conductor configurations
+- Automatic path direction evaluation
+- Pole reuse and session-scoped regeneration
+- Flexible pole placement constraints
+- Integration with bundle templates
+
+This guide covers the complete workflow from specification to execution.
+
+## BackboneSpec Structure
+
+### Core Components
+
+```cpp
+struct BackboneSpec {
+  BackboneInputSpec path;                        // Polyline geometry
+  double interval_m;                             // Pole spacing
+  PoleTypeId pole_type_id;                       // Pole template
+  std::vector<BackboneBundleSpec> bundles;       // Wire bundles
+  BackboneGenerationConstraints constraints;     // Optional constraints
+  BackbonePolePlacementOptions pole_placement;   // Pole behavior
+  PathDirectionMode direction_mode;              // Path traversal
+};
+```
+
+### Path Specification
+
+Define your route as a polyline:
+
+```cpp
+BackboneSpec spec;
+spec.path.polyline = {
+  {0.0, 0.0, 0.0},
+  {100.0, 0.0, 0.0},
+  {200.0, 50.0, 0.0},
+  {300.0, 50.0, 0.0}
+};
+```
+
+<Note>
+Polyline points use Unreal Engine coordinate conventions: X=Forward, Y=Right, Z=Up. Coordinates are in centimeters by default, but Wire's API uses meters internally.
+</Note>
+
+### Pole Configuration
+
+```cpp
+// Set pole spacing
+spec.interval_m = 40.0;  // Place poles every 40 meters
+
+// Assign pole type (defines slot layout)
+spec.pole_type_id = 1;   // ID from your pole type registry
+```
+
+## Bundle Configuration
+
+### Single Bundle Example
+
+Generate a simple low-voltage line:
+
+```cpp
+BackboneBundleSpec bundle;
+bundle.bundle_template_id = BundleKind::kLowVoltage;
+bundle.layer = SpanLayer::kLowVoltage;
+bundle.count = 1;  // Single conductor
+
+spec.bundles.push_back(bundle);
+```
+
+### Multi-Bundle Example
+
+Create a complex utility corridor with multiple services:
+
+```cpp
+// High voltage transmission (3-phase)
+BackboneBundleSpec hv_bundle;
+hv_bundle.bundle_template_id = BundleKind::kHighVoltage;
+hv_bundle.layer = SpanLayer::kHighVoltage;
+hv_bundle.count = 3;
+spec.bundles.push_back(hv_bundle);
+
+// Low voltage distribution
+BackboneBundleSpec lv_bundle;
+lv_bundle.bundle_template_id = BundleKind::kLowVoltage;
+lv_bundle.layer = SpanLayer::kLowVoltage;
+lv_bundle.count = 2;
+spec.bundles.push_back(lv_bundle);
+
+// Communication cable
+BackboneBundleSpec comm_bundle;
+comm_bundle.bundle_template_id = BundleKind::kCommunication;
+comm_bundle.layer = SpanLayer::kCommunication;
+comm_bundle.count = 1;
+spec.bundles.push_back(comm_bundle);
+
+// Fiber optic
+BackboneBundleSpec fiber_bundle;
+fiber_bundle.bundle_template_id = BundleKind::kOptical;
+fiber_bundle.layer = SpanLayer::kOptical;
+fiber_bundle.count = 1;
+spec.bundles.push_back(fiber_bundle);
+```
+
+### Understanding Bundle Templates
+
+Bundle templates define conductor count rules and defaults:
+
+```cpp
+struct BundleTemplate {
+  BundleKind id;
+  std::string name;
+  ConnectionCategory category;
+  SpanLayer default_layer;
+  bool is_electric;
+  bool preserve_conductor_identity;  // Maintain wire order
+  BundleCountRuleKind count_rule;   // kFixed or kRange
+  int fixed_count;                   // For fixed templates
+  int min_count, max_count;          // For variable templates
+  int default_count;
+  double default_spacing_m;
+  bool allow_mirror;                 // Allow left/right flip
+};
+```
+
+## Path Direction Control
+
+### Automatic Direction Selection
+
+Let Wire choose the optimal traversal direction:
+
+```cpp
+spec.direction_mode = PathDirectionMode::kAuto;
+
+auto result = state.GenerateFromBackboneSpec(spec);
+
+// Inspect which direction was chosen
+CoreView view = state.view();
+auto debug = view.last_path_direction_debug();
+std::cout << "Chosen direction: " 
+          << (debug.chosen == PathDirectionChosen::kForward 
+              ? "Forward" : "Reverse") 
+          << std::endl;
+```
+
+Wire evaluates both directions using a cost function that considers:
+- Port slot inversion penalties
+- Connection continuity
+- Corner angle handling
+- Template slot availability
+
+### Forcing a Direction
+
+```cpp
+// Force forward traversal (first to last point)
+spec.direction_mode = PathDirectionMode::kForward;
+
+// Force reverse traversal (last to first point)
+spec.direction_mode = PathDirectionMode::kReverse;
+```
+
+## Pole Placement Options
+
+### Basic Placement Control
+
+```cpp
+BackbonePolePlacementOptions options;
+
+// Pin endpoints as manually placed
+options.pin_endpoints = true;
+
+// Pin all vertex poles as manual
+options.pin_vertices = false;
+
+spec.pole_placement = options;
+```
+
+When `pin_endpoints = true`, the first and last generated poles are set to `PlacementMode::kManual`, preventing future regeneration from moving them.
+
+### Session-Scoped Regeneration
+
+Restrict pole reuse to a specific generation session:
+
+```cpp
+// First generation
+auto initial_result = state.GenerateFromBackboneSpec(spec);
+std::uint64_t session_id = initial_result.value.generation_session_id;
+
+// Later regeneration - only reuse poles from this session
+BackbonePolePlacementOptions options;
+options.restrict_reuse_to_session = true;
+options.reuse_session_id = session_id;
+
+spec.pole_placement = options;
+auto regen_result = state.GenerateFromBackboneSpec(spec);
+```
+
+## Generation Constraints
+
+### Avoidance and Offsets
+
+```cpp
+BackboneGenerationConstraints constraints;
+
+// Define keep-out zones
+constraints.avoid_points = {
+  {150.0, 25.0, 0.0},
+  {175.0, 30.0, 0.0}
+};
+constraints.avoid_radius_m = 5.0;  // 5m radius around each point
+
+// Offset path laterally
+constraints.lateral_offset_m = 2.0;  // Shift 2m to the right
+
+spec.constraints = constraints;
+```
+
+<Warning>
+Avoidance constraints are currently in development and may not fully affect pole placement in the current implementation.
+</Warning>
+
+## Executing Generation
+
+### Complete Workflow
+
+<Steps>
+  <Step title="Build Specification">
+    ```cpp
+    BackboneSpec spec;
+    spec.path.polyline = load_path_from_source();
+    spec.interval_m = 35.0;
+    spec.pole_type_id = 1;
+    spec.direction_mode = PathDirectionMode::kAuto;
+    
+    // Add bundles
+    BackboneBundleSpec bundle;
+    bundle.bundle_template_id = BundleKind::kHighVoltage;
+    bundle.layer = SpanLayer::kHighVoltage;
+    bundle.count = 3;
+    spec.bundles.push_back(bundle);
+    ```
+  </Step>
+  
+  <Step title="Execute Generation">
+    ```cpp
+    auto result = state.GenerateFromBackboneSpec(spec);
+    
+    if (!result.ok) {
+      std::cerr << "Generation failed: " << result.error << std::endl;
+      return;
+    }
+    ```
+  </Step>
+  
+  <Step title="Extract Results">
+    ```cpp
+    // Primary bundle ID (first in bundles list)
+    ObjectId primary_bundle = result.value.bundle_id;
+    
+    // All created bundle IDs
+    std::vector<ObjectId> all_bundles = result.value.bundle_ids;
+    
+    // Generated entity IDs
+    std::vector<ObjectId> pole_ids = result.value.generated_pole_ids;
+    std::vector<ObjectId> span_ids = result.value.generated_span_ids;
+    
+    // Session ID for future regeneration
+    std::uint64_t session = result.value.generation_session_id;
+    ```
+  </Step>
+  
+  <Step title="Commit Changes">
+    ```cpp
+    CommitResult commit = state.Commit();
+    
+    if (commit.validation.has_errors()) {
+      for (const auto& issue : commit.validation.issues) {
+        std::cerr << issue.message << std::endl;
+      }
+    }
+    
+    std::cout << "Generated " << pole_ids.size() << " poles, "
+              << span_ids.size() << " spans\n";
+    std::cout << "Geometry recalc: " 
+              << commit.recalc_stats.geometry_processed << " spans\n";
+    ```
+  </Step>
+</Steps>
+
+## Incremental Regeneration
+
+### Modifying Existing Networks
+
+Use `RegenerateSessionAutoParts()` to update only auto-placed elements:
+
+```cpp
+// Original generation
+auto initial = state.GenerateFromBackboneSpec(spec);
+std::uint64_t session_id = initial.value.generation_session_id;
+state.Commit();
+
+// User manually edits some poles
+state.SetPolePlacementMode(pole_id, PlacementMode::kManual);
+state.MovePole(pole_id, new_transform);
+state.Commit();
+
+// Regenerate, preserving manual poles
+BackboneSpec updated_spec = spec;
+updated_spec.interval_m = 45.0;  // Change spacing
+
+auto regen = state.RegenerateSessionAutoParts(session_id, updated_spec);
+state.Commit();
+
+// Manual poles remain untouched
+// Auto poles are repositioned with new spacing
+```
+
+### Regeneration Rules
+
+- Poles with `PlacementMode::kManual` are never moved
+- Poles with `PlacementMode::kAuto` are repositioned to match the new spec
+- Spans are reconnected to maintain network continuity
+- Session ID links regeneration operations
+
+## Querying Generation Results
+
+### Backbone Topology
+
+Extract the high-level connectivity graph:
+
+```cpp
+BackboneResult backbone = state.BuildBackboneResult();
+
+for (const BackboneEdge& edge : backbone.edges) {
+  std::cout << "Connection: " 
+            << edge.node_a << " -> " << edge.node_b
+            << " (bundles: " << edge.bundles.size() << ")\n";
+}
+
+for (const JunctionInfo& junction : backbone.junctions) {
+  std::cout << "Junction at pole " << junction.node_id
+            << " with " << junction.incidents.size() 
+            << " connections\n";
+}
+```
+
+### Finding Routes
+
+```cpp
+// Find all spans between two poles
+std::vector<ObjectId> route = state.FindBackboneRoute(
+  start_pole_id,
+  end_pole_id
+);
+
+for (ObjectId span_id : route) {
+  // Process each span in the route
+}
+```
+
+## Debugging Generation
+
+### Path Direction Debug Info
+
+```cpp
+// After generation with PathDirectionMode::kAuto
+CoreView view = state.view();
+auto debug = view.last_path_direction_debug();
+
+std::cout << "Forward cost: " << debug.forward_cost << std::endl;
+std::cout << "Reverse cost: " << debug.reverse_cost << std::endl;
+std::cout << "Chosen: " 
+          << (debug.chosen == PathDirectionChosen::kForward 
+              ? "Forward" : "Reverse") 
+          << std::endl;
+
+// Access all historical evaluations
+for (const auto& record : view.path_direction_debug_records()) {
+  // Inspect past direction choices
+}
+```
+
+### Slot Selection Debug Info
+
+```cpp
+// Inspect slot selection decisions
+for (const auto& record : view.slot_selection_debug_records()) {
+  // View which slots were chosen and why
+}
+```
+
+### Clearing Debug Records
+
+```cpp
+// Clear accumulated debug data
+state.clear_path_direction_debug_records();
+state.clear_slot_selection_debug_records();
+```
+
+## Advanced Patterns
+
+### Multi-Path Generation
+
+```cpp
+// Generate multiple independent paths
+std::vector<std::uint64_t> session_ids;
+
+for (const auto& path_data : paths) {
+  BackboneSpec spec;
+  spec.path.polyline = path_data.points;
+  spec.interval_m = 40.0;
+  spec.pole_type_id = 1;
+  
+  // Configure bundle for this path
+  BackboneBundleSpec bundle;
+  bundle.bundle_template_id = path_data.bundle_kind;
+  bundle.layer = path_data.layer;
+  spec.bundles.push_back(bundle);
+  
+  auto result = state.GenerateFromBackboneSpec(spec);
+  if (result.ok) {
+    session_ids.push_back(result.value.generation_session_id);
+  }
+}
+
+// Single commit handles all paths
+state.Commit();
+```
+
+### Branching Networks
+
+Connect generated paths using manual spans:
+
+```cpp
+// Generate main trunk
+auto trunk_result = state.GenerateFromBackboneSpec(trunk_spec);
+
+// Generate branch
+auto branch_result = state.GenerateFromBackboneSpec(branch_spec);
+
+// Manually connect trunk to branch
+ObjectId trunk_pole = trunk_result.value.generated_pole_ids[5];
+ObjectId branch_pole = branch_result.value.generated_pole_ids[0];
+
+CoreState::AddConnectionByPoleOptions options;
+options.connection_context = ConnectionContext::kBranchAdd;
+
+auto connection = state.AddConnectionByPole(
+  trunk_pole,
+  branch_pole,
+  ConnectionCategory::kLowVoltage,
+  options
+);
+
+state.Commit();
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use Consistent Units">
+    Wire's API uses meters for distances. Convert from your coordinate system:
+    
+    ```cpp
+    // If your path is in centimeters (Unreal)
+    for (const Vec3& cm_point : ue_path) {
+      Vec3d m_point = {
+        cm_point.x / 100.0,
+        cm_point.y / 100.0,
+        cm_point.z / 100.0
+      };
+      spec.path.polyline.push_back(m_point);
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Validate Bundle Count Rules">
+    Check template compatibility before generation:
+    
+    ```cpp
+    CoreView view = state.view();
+    const BundleTemplate* tmpl = nullptr;
+    
+    for (const auto& [kind, template_def] : view.bundle_templates()) {
+      if (kind == BundleKind::kHighVoltage) {
+        tmpl = &template_def;
+        break;
+      }
+    }
+    
+    if (tmpl->count_rule == BundleCountRuleKind::kFixed) {
+      // Must use fixed_count, ignore requested count
+      bundle.count = 0;  // Ignored for fixed templates
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Save Session IDs for Regeneration">
+    Store generation session IDs with your project data:
+    
+    ```cpp
+    struct SavedNetwork {
+      std::uint64_t session_id;
+      std::vector<ObjectId> manual_pole_ids;
+      BackboneSpec original_spec;
+    };
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Building Networks" icon="diagram-project" href="/guides/building-networks">
+    Learn the basics of network creation
+  </Card>
+  <Card title="Editing Entities" icon="pen" href="/guides/editing-entities">
+    Modify generated networks
+  </Card>
+  <Card title="Incremental Recalc" icon="arrows-rotate" href="/guides/incremental-recalc">
+    Understand dirty tracking
+  </Card>
+  <Card title="Validation" icon="shield-check" href="/guides/validation">
+    Validate generated networks
+  </Card>
+</CardGroup>

@@ -1,0 +1,370 @@
+---
+title: 'EditResult and ChangeSet'
+description: 'Result pattern for CoreState mutations'
+---
+
+## Overview
+
+`EditResult<T>` is the return type for all mutation operations in `CoreState`. It provides a unified way to handle success, errors, and change tracking. Every edit operation returns an `EditResult` containing:
+
+- Success/failure status
+- The result value (e.g., ObjectId for creation operations)
+- Error message on failure
+- A `ChangeSet` tracking all created, updated, and deleted entities
+
+**Location:** `wire/core/core_state.hpp:186-191`
+
+**Namespace:** `wire::core`
+
+## EditResult Structure
+
+```cpp
+template <typename TValue>
+struct EditResult {
+  bool ok = false;
+  TValue value{};
+  std::string error{};
+  ChangeSet change_set{};
+};
+```
+
+### Fields
+
+<ResponseField name="ok" type="bool">
+  **true** if the operation succeeded, **false** if it failed
+</ResponseField>
+
+<ResponseField name="value" type="TValue">
+  The result value on success (e.g., ObjectId for entity creation, bool for settings updates)
+</ResponseField>
+
+<ResponseField name="error" type="std::string">
+  Human-readable error message on failure (empty string on success)
+</ResponseField>
+
+<ResponseField name="change_set" type="ChangeSet">
+  Detailed record of all entities created, updated, or deleted during this operation
+</ResponseField>
+
+---
+
+## ChangeSet Structure
+
+```cpp
+struct ChangeSet {
+  std::vector<ObjectId> created_ids;
+  std::vector<ObjectId> updated_ids;
+  std::vector<ObjectId> deleted_ids;
+  std::vector<ObjectId> dirty_span_ids;
+};
+```
+
+**Location:** `wire/core/core_state.hpp:179-184`
+
+### Fields
+
+<ResponseField name="created_ids" type="std::vector<ObjectId>">
+  IDs of entities created during the operation
+</ResponseField>
+
+<ResponseField name="updated_ids" type="std::vector<ObjectId>">
+  IDs of entities modified during the operation
+</ResponseField>
+
+<ResponseField name="deleted_ids" type="std::vector<ObjectId>">
+  IDs of entities deleted during the operation
+</ResponseField>
+
+<ResponseField name="dirty_span_ids" type="std::vector<ObjectId>">
+  IDs of spans marked dirty and requiring recalculation
+</ResponseField>
+
+---
+
+## Common Usage Patterns
+
+### Basic Error Handling
+
+```cpp
+auto result = state.AddPole(Transformd{{10, 20, 0}}, 12.0);
+
+if (!result.ok) {
+  std::cerr << "Failed to add pole: " << result.error << std::endl;
+  return;
+}
+
+ObjectId pole_id = result.value;
+// Use pole_id...
+```
+
+---
+
+### Inspecting Changes
+
+```cpp
+auto result = state.AddConnectionByPole(
+  pole_a_id,
+  pole_b_id,
+  ConnectionCategory::kLowVoltage
+);
+
+if (result.ok) {
+  std::cout << "Created entities: " << result.change_set.created_ids.size() << std::endl;
+  std::cout << "Updated entities: " << result.change_set.updated_ids.size() << std::endl;
+  std::cout << "Dirty spans: " << result.change_set.dirty_span_ids.size() << std::endl;
+  
+  // Created IDs typically include:
+  // - New span ID
+  // - Potentially new port IDs (if auto-generated)
+  for (ObjectId id : result.change_set.created_ids) {
+    std::cout << "  Created: " << id << std::endl;
+  }
+}
+```
+
+---
+
+### Chaining Operations
+
+```cpp
+auto pole_result = state.AddPole(Transformd{{0, 0, 0}}, 12.0);
+if (!pole_result.ok) {
+  return pole_result.error;
+}
+
+auto port_result = state.AddPort(
+  pole_result.value,
+  Vec3d{0, 0, 10},
+  PortKind::kPower
+);
+if (!port_result.ok) {
+  return port_result.error;
+}
+
+// Both operations succeeded
+ObjectId pole_id = pole_result.value;
+ObjectId port_id = port_result.value;
+```
+
+---
+
+### Handling Complex Results
+
+Some operations return structured values:
+
+```cpp
+auto result = state.SplitSpan(span_id, 0.5);
+
+if (result.ok) {
+  const auto& split = result.value;
+  
+  std::cout << "Original span: " << split.old_span_id << std::endl;
+  std::cout << "New port: " << split.new_port_id << std::endl;
+  std::cout << "New span A: " << split.new_span_a_id << std::endl;
+  std::cout << "New span B: " << split.new_span_b_id << std::endl;
+  
+  // ChangeSet will include all created/updated/deleted entities
+  std::cout << "Total changes: " << result.change_set.created_ids.size() << std::endl;
+}
+```
+
+---
+
+### Accumulating Changes
+
+You can accumulate change sets from multiple operations:
+
+```cpp
+struct BatchChanges {
+  std::vector<ObjectId> all_created;
+  std::vector<ObjectId> all_updated;
+  std::vector<ObjectId> all_deleted;
+};
+
+BatchChanges batch;
+
+for (const auto& transform : pole_positions) {
+  auto result = state.AddPole(transform, 12.0);
+  if (result.ok) {
+    batch.all_created.insert(
+      batch.all_created.end(),
+      result.change_set.created_ids.begin(),
+      result.change_set.created_ids.end()
+    );
+  }
+}
+
+std::cout << "Batch created " << batch.all_created.size() << " entities" << std::endl;
+```
+
+---
+
+## Common Result Types
+
+### Entity Creation
+
+Most entity creation methods return `EditResult<ObjectId>`:
+
+```cpp
+EditResult<ObjectId> AddPole(...);
+EditResult<ObjectId> AddPort(...);
+EditResult<ObjectId> AddAnchor(...);
+EditResult<ObjectId> AddBundle(...);
+EditResult<ObjectId> AddSpan(...);
+EditResult<ObjectId> AddAttachment(...);
+```
+
+---
+
+### Entity Mutation
+
+Mutation methods also return `EditResult<ObjectId>` with the modified entity's ID:
+
+```cpp
+EditResult<ObjectId> MovePole(...);
+EditResult<ObjectId> SetPoleTilt(...);
+EditResult<ObjectId> MovePort(...);
+EditResult<ObjectId> DeleteSpan(...);
+```
+
+---
+
+### Settings Updates
+
+Settings updates return `EditResult<bool>`:
+
+```cpp
+EditResult<bool> UpdateGeometrySettings(...);
+EditResult<bool> UpdateLayoutSettings(...);
+EditResult<bool> UpdateVisualSettings(...);
+```
+
+---
+
+### Batch Operations
+
+Batch operations return `EditResult<std::vector<ObjectId>>`:
+
+```cpp
+EditResult<std::vector<ObjectId>> GeneratePolesAlongRoad(...);
+EditResult<std::vector<ObjectId>> GenerateSpansBetweenPoles(...);
+```
+
+---
+
+### Structured Results
+
+Complex operations return custom result structures:
+
+```cpp
+EditResult<SplitSpanResult> SplitSpan(...);
+EditResult<AddConnectionByPoleResult> AddConnectionByPole(...);
+EditResult<AddDropResult> AddDropFromPole(...);
+EditResult<GenerateSimpleLineResult> GenerateSimpleLine(...);
+EditResult<GenerateBundleFromPathResult> GenerateFromBackboneSpec(...);
+```
+
+---
+
+## Error Handling Best Practices
+
+### Always Check `ok`
+
+Never assume an operation succeeded:
+
+```cpp
+// BAD: Assumes success
+auto result = state.AddPole(transform, 12.0);
+ObjectId pole_id = result.value; // value is invalid if ok == false!
+
+// GOOD: Check first
+auto result = state.AddPole(transform, 12.0);
+if (!result.ok) {
+  handle_error(result.error);
+  return;
+}
+ObjectId pole_id = result.value;
+```
+
+---
+
+### Provide Context in Errors
+
+When propagating errors, add context:
+
+```cpp
+auto result = state.AddConnectionByPole(pole_a, pole_b, category);
+if (!result.ok) {
+  throw std::runtime_error(
+    "Failed to connect poles " + std::to_string(pole_a) + 
+    " and " + std::to_string(pole_b) + ": " + result.error
+  );
+}
+```
+
+---
+
+### Log Changes for Undo/Redo
+
+Use change sets to implement undo/redo:
+
+```cpp
+struct UndoRecord {
+  std::string operation_name;
+  ChangeSet changes;
+};
+
+std::vector<UndoRecord> undo_stack;
+
+auto result = state.AddPole(transform, 12.0);
+if (result.ok) {
+  undo_stack.push_back({
+    "Add Pole",
+    result.change_set
+  });
+}
+```
+
+---
+
+## Understanding Dirty Spans
+
+The `dirty_span_ids` field tracks spans that need recalculation:
+
+```cpp
+auto result = state.MovePole(pole_id, new_transform);
+
+if (result.ok) {
+  std::cout << "Moving pole dirtied " 
+            << result.change_set.dirty_span_ids.size() 
+            << " spans" << std::endl;
+  
+  // These spans will be recalculated on next Commit()
+  for (ObjectId span_id : result.change_set.dirty_span_ids) {
+    std::cout << "  Span " << span_id << " needs recalc" << std::endl;
+  }
+}
+```
+
+Dirty spans are automatically processed during `Commit()`:
+
+```cpp
+// Make edits
+state.MovePole(pole_a, transform_a);
+state.MovePole(pole_b, transform_b);
+
+// Commit triggers recalculation of all dirty spans
+auto commit_result = state.Commit();
+std::cout << "Recalculated " << commit_result.recalc_stats.total_processed() 
+          << " items" << std::endl;
+```
+
+See [Dirty Tracking](/concepts/dirty-tracking) for details on the dirty propagation system.
+
+---
+
+## See Also
+
+- [CoreState](/api/core-state) - Main state container using EditResult
+- [Dirty Tracking](/concepts/dirty-tracking) - Understanding dirty bits and change propagation
+- [Incremental Recalc](/guides/incremental-recalc) - Working with dirty spans and recalculation

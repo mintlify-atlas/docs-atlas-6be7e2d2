@@ -1,0 +1,151 @@
+---
+title: Introduction
+description: Wire is a native C++ library for generating and managing utility pole and power line networks with automatic layout and incremental recalculation
+---
+
+<div className="bg-gradient-to-r from-[#4595db] to-[#5ebf9e] text-white rounded-lg p-8 mb-8">
+  <h1 className="text-5xl font-bold mb-4">Wire</h1>
+  <p className="text-xl">Native C++ library for generating and managing utility pole and power line networks</p>
+</div>
+
+## Overview
+
+Wire is a game engine-independent C++ core library designed for generating, editing, and validating utility pole and power line networks. Built with real-world infrastructure simulation in mind, Wire provides a robust foundation for procedural generation of electrical distribution networks with automatic layout, connection management, and incremental recalculation.
+
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Get up and running with Wire in minutes
+  </Card>
+  <Card title="Core Concepts" icon="book" href="/concepts/architecture">
+    Learn about Wire's architecture and data model
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/core-state">
+    Explore the complete API documentation
+  </Card>
+  <Card title="Viewer Guide" icon="eye" href="/viewer/overview">
+    Use the lightweight viewer for debugging
+  </Card>
+</CardGroup>
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="Game Engine Independent" icon="cube">
+    Pure C++ core library with no engine dependencies, designed for integration with Unreal Engine and other platforms
+  </Card>
+  <Card title="Entity-Based Model" icon="diagram-project">
+    Clean separation of concerns with Pole, Port, Span, Bundle, Anchor, and Attachment entities
+  </Card>
+  <Card title="Automatic Generation" icon="wand-magic-sparkles">
+    Generate complete networks from path specifications with automatic connection management
+  </Card>
+  <Card title="Incremental Updates" icon="arrows-rotate">
+    Dirty tracking and version-based recalculation for efficient partial updates
+  </Card>
+  <Card title="Port Slot Templates" icon="sitemap">
+    Flexible template system for automatic port layout with corner angle correction
+  </Card>
+  <Card title="Multi-Conductor Support" icon="wave-square">
+    Handle multiple wire bundles with configurable conductor counts and spacing
+  </Card>
+  <Card title="Development Viewer" icon="display">
+    Lightweight raylib-based viewer for visualization and debugging during development
+  </Card>
+  <Card title="Validation System" icon="shield-check">
+    Built-in topology and connection integrity validation with fast and thorough modes
+  </Card>
+</CardGroup>
+
+## Architecture
+
+Wire is built on a **4-layer architecture** that strictly separates concerns:
+
+### Entity Layer (Persistent)
+
+The authoritative data model that gets saved and loaded:
+
+- **Pole** — Support structures (utility poles, towers)
+- **Port** — Connection endpoints where wires attach
+- **Anchor** — Support-only points (insulators, mounting hardware)
+- **Bundle** — Multi-conductor wire groups with shared properties
+- **Span** — Physical connections between two ports
+- **Attachment** — Parametric objects along spans (dampers, spacers)
+
+### Cache Layer (Derived)
+
+Regenerable computed data not persisted:
+
+- **CurveCache** — Sampled wire geometry with sag
+- **BoundsCache** — Spatial bounding boxes for culling
+- **VisualCache** — Support arm and insulator visual parts
+
+### Runtime Layer (Transient)
+
+Version tracking for incremental updates:
+
+- **SpanRuntimeState** — Per-span version counters and dirty flags
+- **DirtyQueue** — Work queues for geometry, bounds, and render updates
+
+### Debug Layer (Session)
+
+Non-authoritative diagnostic information:
+
+- Path direction evaluation logs
+- Slot selection decision records
+- Lane assignment debug data
+
+<Note>
+The strict separation between persistent entity data and derived caches ensures data integrity and makes the system easy to serialize, debug, and extend.
+</Note>
+
+## Design Principles
+
+Wire follows several core design principles:
+
+- **Coordinate System** — Uses Unreal Engine conventions with double precision
+- **ID Management** — 64-bit persistent IDs that are never reused
+- **Edit API Only** — All modifications go through `CoreState` editing methods
+- **Unidirectional Dirty Propagation** — Avoids circular dependencies in update chains
+- **Slot vs. Port Distinction** — Template slots are candidates; ports are actual connection points
+
+## Use Cases
+
+Wire is designed for:
+
+- **Procedural City Generation** — Automatically create realistic utility infrastructure
+- **Infrastructure Simulation** — Model electrical distribution networks for games and training
+- **Visualization Tools** — Build editing tools for power line layout and planning
+- **Game Engine Integration** — Embed into Unreal Engine, Unity, or custom engines
+
+## Getting Started
+
+<Steps>
+  <Step title="Install Dependencies">
+    Wire requires CMake 3.24+ and a C++20 compiler
+  </Step>
+  <Step title="Build the Library">
+    Configure and build Wire with CMake
+  </Step>
+  <Step title="Create Your First Network">
+    Use the generation API to create poles and spans
+  </Step>
+  <Step title="Explore the Viewer">
+    Visualize and debug your network with the built-in viewer
+  </Step>
+</Steps>
+
+<Card title="Ready to Build?" icon="hammer" href="/installation">
+  Continue to Installation →
+</Card>
+
+## Implementation Status
+
+Wire is currently in **Phase 4.x** (Design Consolidation):
+
+- ✅ **Phase 0-4** — Core foundation, editing API, dirty tracking, geometry generation
+- 🔄 **Phase 4.x** — Current: Design consolidation and type inventory
+- 📋 **Phase 5+** — Planned: Serialization, raycasting, culling/LOD, wind simulation
+
+<Info>
+Wire is under active development. The core entity model and editing API are stable, but advanced features like serialization and culling are still in progress.
+</Info>

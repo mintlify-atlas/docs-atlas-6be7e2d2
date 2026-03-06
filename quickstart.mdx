@@ -1,80 +1,416 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quick Start
+description: Create your first electric pole and wire network with Wire
 ---
 
-## Get started in three steps
+## Overview
 
-Get your documentation site running locally and make your first customization.
+This guide walks you through creating a simple pole network with Wire. You'll learn how to create poles, connect them with spans, and process the geometry.
 
-### Step 1: Set up your local environment
+## Prerequisites
+
+Ensure you have:
+- Built the Wire library following the [Installation guide](/installation)
+- Basic familiarity with C++20
+- A C++ project configured to link against `wire_core`
+
+## Your First Pole Network
+
+<Steps>
+  <Step title="Create a CoreState instance">
+    The `CoreState` class is the main entry point for all Wire operations. It manages the entity layer (poles, ports, spans) and derived caches.
+    
+    ```cpp
+    #include <wire/core/core_state.hpp>
+    #include <iostream>
+    
+    int main() {
+        wire::core::CoreState state;
+        std::cout << "Wire CoreState initialized\n";
+        return 0;
+    }
+    ```
+    
+    <Info>
+    `CoreState` initializes with default pole types and bundle templates automatically. No manual configuration is needed for basic usage.
+    </Info>
+  </Step>
+  
+  <Step title="Add two poles">
+    Create two poles at different positions. Poles are the primary support structures in the network.
+    
+    ```cpp
+    using namespace wire::core;
+    
+    // Create first pole at origin
+    Transformd transform_a;
+    transform_a.position = {0.0, 0.0, 0.0};
+    auto pole_a_result = state.AddPole(transform_a, 10.0, "PoleA");
+    
+    if (!pole_a_result.ok) {
+        std::cerr << "Failed to add pole A: " << pole_a_result.error << "\n";
+        return 1;
+    }
+    ObjectId pole_a = pole_a_result.value;
+    
+    // Create second pole 30 meters away
+    Transformd transform_b;
+    transform_b.position = {30.0, 0.0, 0.0};
+    auto pole_b_result = state.AddPole(transform_b, 10.0, "PoleB");
+    
+    if (!pole_b_result.ok) {
+        std::cerr << "Failed to add pole B: " << pole_b_result.error << "\n";
+        return 1;
+    }
+    ObjectId pole_b = pole_b_result.value;
+    
+    std::cout << "Created poles: " << pole_a << ", " << pole_b << "\n";
+    ```
+    
+    **Parameters:**
+    - `world_transform`: World-space position and rotation
+    - `height_m`: Pole height in meters (default: 10.0)
+    - `name`: Optional display name
+  </Step>
+  
+  <Step title="Create ports on each pole">
+    Ports are connection endpoints where wires attach. Add ports at specific world positions on each pole.
+    
+    ```cpp
+    // Add port to pole A at 8 meters height
+    Vec3d port_a_pos = {0.0, 0.0, 8.0};
+    auto port_a_result = state.AddPort(
+        pole_a,
+        port_a_pos,
+        PortKind::kPower,
+        PortLayer::kLowVoltage
+    );
+    
+    if (!port_a_result.ok) {
+        std::cerr << "Failed to add port A: " << port_a_result.error << "\n";
+        return 1;
+    }
+    ObjectId port_a = port_a_result.value;
+    
+    // Add port to pole B at same height
+    Vec3d port_b_pos = {30.0, 0.0, 8.0};
+    auto port_b_result = state.AddPort(
+        pole_b,
+        port_b_pos,
+        PortKind::kPower,
+        PortLayer::kLowVoltage
+    );
+    
+    if (!port_b_result.ok) {
+        std::cerr << "Failed to add port B: " << port_b_result.error << "\n";
+        return 1;
+    }
+    ObjectId port_b = port_b_result.value;
+    
+    std::cout << "Created ports: " << port_a << ", " << port_b << "\n";
+    ```
+  </Step>
+  
+  <Step title="Connect ports with a span">
+    A span represents the wire connection between two ports. Create a span to connect the two poles.
+    
+    ```cpp
+    auto span_result = state.AddSpan(
+        port_a,
+        port_b,
+        SpanKind::kDistribution,
+        SpanLayer::kLowVoltage
+    );
+    
+    if (!span_result.ok) {
+        std::cerr << "Failed to add span: " << span_result.error << "\n";
+        return 1;
+    }
+    ObjectId span_id = span_result.value;
+    
+    std::cout << "Created span: " << span_id << "\n";
+    ```
+    
+    <Note>
+    When a span is created, Wire automatically:
+    - Assigns it a runtime state with dirty flags
+    - Adds it to connection indices
+    - Marks it for geometry recalculation
+    </Note>
+  </Step>
+  
+  <Step title="Commit changes and process geometry">
+    Call `Commit()` to process dirty queues and regenerate curve geometry. This is when Wire calculates wire paths, bounds, and visual cache.
+    
+    ```cpp
+    CommitOptions options;
+    options.run_recalc = true;           // Process geometry
+    options.run_validate_fast = true;    // Run fast validation
+    options.run_validate = false;        // Skip full validation
+    
+    auto commit_result = state.Commit(options);
+    
+    std::cout << "Geometry processed:\n";
+    std::cout << "  Topology: " << commit_result.recalc_stats.topology_processed << "\n";
+    std::cout << "  Geometry: " << commit_result.recalc_stats.geometry_processed << "\n";
+    std::cout << "  Bounds: " << commit_result.recalc_stats.bounds_processed << "\n";
+    
+    if (commit_result.validation.has_errors()) {
+        std::cerr << "Validation failed\n";
+        for (const auto& issue : commit_result.validation.issues) {
+            std::cerr << "  [" << issue.code << "] " << issue.message << "\n";
+        }
+        return 1;
+    }
+    
+    std::cout << "Network valid!\n";
+    ```
+  </Step>
+  
+  <Step title="Query the generated curve">
+    After committing, access the generated wire curve from the cache.
+    
+    ```cpp
+    const auto* curve_entry = state.find_curve_cache(span_id);
+    if (curve_entry != nullptr) {
+        std::cout << "Span curve has " << curve_entry->points.size() << " sample points\n";
+        
+        // Print first and last points
+        if (!curve_entry->points.empty()) {
+            const auto& first = curve_entry->points.front();
+            const auto& last = curve_entry->points.back();
+            
+            std::cout << "  Start: (" << first.x << ", " << first.y << ", " << first.z << ")\n";
+            std::cout << "  End:   (" << last.x << ", " << last.y << ", " << last.z << ")\n";
+        }
+    }
+    ```
+  </Step>
+</Steps>
+
+## Complete Example
+
+Here's the full working example:
+
+```cpp main.cpp
+#include <wire/core/core_state.hpp>
+#include <iostream>
+
+int main() {
+    using namespace wire::core;
+    
+    CoreState state;
+    std::cout << "Wire CoreState initialized\n";
+    
+    // Create two poles
+    Transformd transform_a;
+    transform_a.position = {0.0, 0.0, 0.0};
+    auto pole_a_result = state.AddPole(transform_a, 10.0, "PoleA");
+    if (!pole_a_result.ok) {
+        std::cerr << "Failed to add pole A: " << pole_a_result.error << "\n";
+        return 1;
+    }
+    ObjectId pole_a = pole_a_result.value;
+    
+    Transformd transform_b;
+    transform_b.position = {30.0, 0.0, 0.0};
+    auto pole_b_result = state.AddPole(transform_b, 10.0, "PoleB");
+    if (!pole_b_result.ok) {
+        std::cerr << "Failed to add pole B: " << pole_b_result.error << "\n";
+        return 1;
+    }
+    ObjectId pole_b = pole_b_result.value;
+    
+    std::cout << "Created poles: " << pole_a << ", " << pole_b << "\n";
+    
+    // Create ports
+    Vec3d port_a_pos = {0.0, 0.0, 8.0};
+    auto port_a_result = state.AddPort(pole_a, port_a_pos, PortKind::kPower, PortLayer::kLowVoltage);
+    if (!port_a_result.ok) {
+        std::cerr << "Failed to add port A: " << port_a_result.error << "\n";
+        return 1;
+    }
+    ObjectId port_a = port_a_result.value;
+    
+    Vec3d port_b_pos = {30.0, 0.0, 8.0};
+    auto port_b_result = state.AddPort(pole_b, port_b_pos, PortKind::kPower, PortLayer::kLowVoltage);
+    if (!port_b_result.ok) {
+        std::cerr << "Failed to add port B: " << port_b_result.error << "\n";
+        return 1;
+    }
+    ObjectId port_b = port_b_result.value;
+    
+    std::cout << "Created ports: " << port_a << ", " << port_b << "\n";
+    
+    // Create span
+    auto span_result = state.AddSpan(port_a, port_b, SpanKind::kDistribution, SpanLayer::kLowVoltage);
+    if (!span_result.ok) {
+        std::cerr << "Failed to add span: " << span_result.error << "\n";
+        return 1;
+    }
+    ObjectId span_id = span_result.value;
+    std::cout << "Created span: " << span_id << "\n";
+    
+    // Commit and process geometry
+    CommitOptions options;
+    options.run_recalc = true;
+    options.run_validate_fast = true;
+    
+    auto commit_result = state.Commit(options);
+    
+    std::cout << "Geometry processed:\n";
+    std::cout << "  Topology: " << commit_result.recalc_stats.topology_processed << "\n";
+    std::cout << "  Geometry: " << commit_result.recalc_stats.geometry_processed << "\n";
+    std::cout << "  Bounds: " << commit_result.recalc_stats.bounds_processed << "\n";
+    
+    if (commit_result.validation.has_errors()) {
+        std::cerr << "Validation failed\n";
+        return 1;
+    }
+    
+    // Query curve
+    const auto* curve_entry = state.find_curve_cache(span_id);
+    if (curve_entry != nullptr && !curve_entry->points.empty()) {
+        std::cout << "Span curve has " << curve_entry->points.size() << " sample points\n";
+        const auto& first = curve_entry->points.front();
+        const auto& last = curve_entry->points.back();
+        std::cout << "  Start: (" << first.x << ", " << first.y << ", " << first.z << ")\n";
+        std::cout << "  End:   (" << last.x << ", " << last.y << ", " << last.z << ")\n";
+    }
+    
+    std::cout << "Success!\n";
+    return 0;
+}
+```
+
+## Build and Run
+
+<CodeGroup>
+```bash CMake
+# Add to your CMakeLists.txt
+add_executable(quickstart main.cpp)
+target_link_libraries(quickstart PRIVATE wire_core)
+
+# Build
+cmake --build build --target quickstart
+
+# Run
+./build/quickstart
+```
+
+```bash g++
+g++ -std=c++20 main.cpp \
+    -I/path/to/wire/core/include \
+    -L/path/to/wire/build/core \
+    -lwire_core \
+    -o quickstart
+    
+./quickstart
+```
+</CodeGroup>
+
+## Expected Output
+
+```
+Wire CoreState initialized
+Created poles: 1, 2
+Created ports: 3, 4
+Created span: 5
+Geometry processed:
+  Topology: 1
+  Geometry: 1
+  Bounds: 1
+Span curve has 8 sample points
+  Start: (0, 0, 8)
+  End:   (30, 0, 8)
+Success!
+```
+
+## Key Concepts
 
 <AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
+  <Accordion title="Entity Layer vs Cache Layer">
+    Wire separates persistent data from derived caches:
     
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
+    **Entity Layer** (persisted):
+    - `Pole`: Support structures
+    - `Port`: Connection endpoints
+    - `Span`: Wire connections
+    - `Bundle`: Multi-conductor grouping
+    - `Anchor`: Support-only attachment points
+    - `Attachment`: Span-mounted components
+    
+    **Cache Layer** (regenerable):
+    - `CurveCache`: Sampled wire geometry
+    - `BoundsCache`: Bounding boxes
+    - `VisualCache`: Support arms, insulators
+    - `DirtyQueue`: Recalculation work queue
   </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
+  
+  <Accordion title="EditResult Pattern">
+    All editing operations return `EditResult<T>`, which contains:
     
-    <Tip>Your preview updates automatically as you edit files.</Tip>
+    ```cpp
+    template <typename T>
+    struct EditResult {
+        bool ok;              // Success flag
+        T value;              // Result value (e.g., ObjectId)
+        std::string error;    // Error message if !ok
+        ChangeSet change_set; // Affected entities
+    };
+    ```
+    
+    Always check `ok` before using `value`:
+    
+    ```cpp
+    auto result = state.AddPole(transform, 10.0);
+    if (result.ok) {
+        ObjectId pole_id = result.value;
+        // Use pole_id
+    } else {
+        std::cerr << result.error << "\n";
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Dirty Propagation">
+    Wire uses a dirty-bit system for incremental updates:
+    
+    - **kTopology**: Connection structure changed
+    - **kGeometry**: Wire path needs recalculation
+    - **kBounds**: Bounding boxes need update
+    - **kRender**: Visual cache needs rebuild
+    - **kRaycast**: Raycasting data needs update
+    
+    When you move a pole, Wire automatically marks connected spans as `kGeometry` dirty. The next `Commit()` processes only dirty spans, making updates efficient even in large networks.
+  </Accordion>
+  
+  <Accordion title="Coordinate System">
+    Wire uses Unreal Engine coordinate conventions:
+    
+    - **X**: Forward
+    - **Y**: Right
+    - **Z**: Up
+    - **Units**: Meters
+    - **Precision**: Double (`double` for all calculations)
+    
+    All transforms use Euler angles in degrees (not radians).
   </Accordion>
 </AccordionGroup>
 
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
-
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
-
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 3: Go live
-
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
-
-## Next steps
-
-Now that you have your docs running, explore these key features:
+## What's Next?
 
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Core Concepts" icon="book" href="/concepts/architecture">
+    Deep dive into the data model and architecture
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/core-state">
+    Complete CoreState API documentation
+  </Card>
+  <Card title="Advanced Editing" icon="wrench" href="/guides/editing-entities">
+    Learn about MovePole, SplitSpan, and more
+  </Card>
+  <Card title="Bundles & Templates" icon="network-wired" href="/guides/building-networks">
+    Work with multi-conductor bundles
+  </Card>
 </CardGroup>
-
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>

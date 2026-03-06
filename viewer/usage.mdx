@@ -1,0 +1,344 @@
+---
+title: Using the Viewer
+description: How to build, run, and interact with the Wire viewer
+---
+
+## Building the Viewer
+
+### Prerequisites
+
+- CMake 3.15 or later
+- C++17 compatible compiler (MSVC, GCC, Clang)
+- raylib (fetched automatically by CMake)
+- ImGui (fetched automatically by CMake)
+
+### Build Commands
+
+<CodeGroup>
+
+```powershell Windows
+# Configure with viewer enabled
+cmake -S . -B build -DWIRE_BUILD_VIEWER=ON
+
+# Build the viewer target
+cmake --build build --config Debug --target wire_viewer
+```
+
+```bash Linux/macOS
+# Configure with viewer enabled
+cmake -S . -B build -DWIRE_BUILD_VIEWER=ON
+
+# Build the viewer target
+cmake --build build --config Debug --target wire_viewer
+```
+
+</CodeGroup>
+
+<Info>
+The `WIRE_BUILD_VIEWER` flag is required. Without it, the viewer target will not be generated.
+</Info>
+
+## Running the Viewer
+
+### Launch
+
+<CodeGroup>
+
+```powershell Windows
+build\viewer\Debug\wire_viewer.exe
+```
+
+```bash Linux/macOS
+build/viewer/Debug/wire_viewer
+```
+
+</CodeGroup>
+
+The viewer opens with a 1280x720 window showing:
+- 3D viewport (center)
+- Topbar (top)
+- Toolbox (left)
+- Inspector (right)
+- Outliner (bottom-left)
+- Diagnostics (accessible via unified workspace)
+
+### Persistent Settings
+
+The viewer saves settings to `viewer_state.ini` in the working directory:
+
+- Window size
+- UI layout preferences
+- Camera FOV
+- Walk speed
+
+## Camera Controls
+
+### Orbit Mode (Default)
+
+| Input | Action |
+|-------|--------|
+| **Middle Mouse + Drag** | Orbit around target |
+| **Shift + Middle Mouse** | Pan camera |
+| **Ctrl + Middle Mouse** | Dolly (zoom) |
+| **Mouse Wheel** | Dolly in/out |
+| **Alt + Left Click** | Set orbit pivot on ground plane |
+| **[ / ]** | Decrease / increase FOV |
+
+### Walk Mode
+
+| Input | Action |
+|-------|--------|
+| **Shift + F** | Toggle walk mode ON/OFF |
+| **W / S** | Move forward / backward |
+| **A / D** | Strafe left / right |
+| **Q / E** | Move down / up |
+| **Mouse Move** | Look around (FPS-style) |
+| **Shift (held)** | 3x speed boost |
+| **Mouse Wheel** | Adjust walk speed |
+| **Esc** | Exit walk mode |
+
+<Warning>
+In walk mode, the mouse is captured. Press **Esc** to release the cursor.
+</Warning>
+
+## DrawPath Workflow
+
+The DrawPath mode is the primary way to generate pole networks.
+
+### Steps
+
+<Steps>
+  <Step title="Select DrawPath Mode">
+    Click the **DrawPath** button in the topbar (or use the mode selector)
+  </Step>
+  
+  <Step title="Configure Settings">
+    In the Toolbox panel:
+    
+    - **Draw Plane Z**: Ground plane height (default: 0.0)
+    - **Path Interval (m)**: Distance between poles (e.g., 8.0)
+    - **Clicked Points Only**: If checked, only places poles at clicked points (no intermediate poles)
+    - **Path PoleType**: Select pole type for generated poles
+    - **Bundle Templates**: Select one or more bundle templates (e.g., LowVoltage, Communication)
+    - **Direction Mode**: Auto, Forward, or Reverse
+  </Step>
+  
+  <Step title="Draw Path Points">
+    In the 3D viewport:
+    
+    - **Left Click**: Add point at cursor position on draw plane
+    - **Right Click / Backspace**: Remove last point
+    - **Esc**: Clear entire path
+    
+    Yellow preview spheres and lines show the current path.
+  </Step>
+  
+  <Step title="Generate Network">
+    Press **Enter** or click **Generate From Path** button.
+    
+    The viewer will:
+    - Create poles along the path at specified intervals
+    - Add ports to poles based on selected templates
+    - Create spans connecting the ports
+    - Apply bundle layout rules
+    - Run dirty propagation and recalculation
+  </Step>
+</Steps>
+
+### Generation Options
+
+**Keep Path After Generate**: If enabled, path points remain visible for iterative editing.
+
+**Regenerate Last Session**: If enabled, pressing Enter will regenerate the same network, preserving Manual poles and updating Auto parts. This allows iterative refinement.
+
+**Clicked Points Only**: Disable intermediate pole generation. Useful for creating long spans or irregular spacing.
+
+### Bundle Template Configuration
+
+Select templates from the dropdown. For each selected template:
+
+- **Fixed Count**: Template enforces a specific wire count (e.g., High Voltage = 3 wires)
+- **Range Count**: You can specify wire count within template limits (e.g., Communication = 1-8 wires)
+
+<CodeGroup>
+
+```text Fixed Template (High Voltage)
+Fixed Count: 3 (template rule)
+→ Always generates 3-wire bundles
+```
+
+```text Range Template (Communication)
+Count: [slider 1..8]
+Allowed Range: 1..8 (default=2)
+→ Generates user-specified wire count
+```
+
+</CodeGroup>
+
+## Pin / Unpin (Manual Placement Mode)
+
+Poles can be **Auto** (generated, will move on regeneration) or **Manual** (pinned, preserved during regeneration).
+
+### Setting Placement Mode
+
+<Steps>
+  <Step title="Select a Pole">
+    Click a pole in the Outliner or 3D viewport to select it.
+  </Step>
+  
+  <Step title="Open Detail Mode">
+    Click the **Detail** button in the topbar.
+  </Step>
+  
+  <Step title="Change Placement Mode">
+    In the Toolbox panel, use the **Placement Mode** dropdown:
+    
+    - **Auto**: Pole will be repositioned by generation
+    - **Manual**: Pole is pinned, will not move during regeneration
+  </Step>
+</Steps>
+
+Alternatively, use the **Inspector** panel's quick combo:
+
+```
+Placement Mode (Quick): [Auto / Manual]
+```
+
+Changing to **Manual** "pins" the pole. It will be preserved during session regeneration.
+
+<Info>
+The topbar shows the selected pole's placement mode: `Selected Pole Placement: Manual`
+</Info>
+
+## Edit Modes
+
+The viewer provides 5 edit modes accessible from the topbar:
+
+### Placement Mode
+
+- Add individual poles at specific coordinates
+- Generate simple road lines (start/end/optional mid point)
+- Set pole height, type, and kind
+
+### Connection Mode
+
+- Connect two poles by ID
+- Specify connection category (High/Low Voltage, Communication, etc.)
+- Specify connection context (Trunk, Corner, Branch, Drop)
+
+### Branch Mode
+
+- Add drop wires from existing spans (at parametric position `t`)
+- Add drop wires from poles to target positions
+
+### Detail Mode
+
+- View and edit selected pole properties
+- Change pole type, placement mode, flip orientation
+- Inspect port slot usage and anchor attachments
+
+### DrawPath Mode
+
+- Interactive path drawing and network generation (see DrawPath Workflow above)
+
+## Object Selection and Inspection
+
+### Selection Methods
+
+1. **Outliner Panel**: Click object in the hierarchical list (Poles, Ports, Spans)
+2. **3D Viewport**: Click object directly (future feature, currently use outliner)
+
+### Inspector Panel
+
+When an object is selected, the Inspector shows:
+
+- **Pole**: ID, position, height, context (corner angle, side scale), generation info, placement mode
+- **Port**: ID, owner pole, position, category, slot ID, position mode, placement source
+- **Span**: ID, port A/B, bundle, curve samples, AABB size, dirty bits, version numbers
+- **Bundle**: ID, conductor count, phase spacing
+
+### Edit Selected Panel
+
+Below the Inspector info:
+
+- **Poles**: Load position, move pole, change transform
+- **Ports**: Load position, move port (sets to Manual), reset to Auto
+- **Anchors**: Load position, move anchor
+- **Spans**: Split span at `t`, delete span
+
+## Workspace Layouts
+
+### Unified Workspace (Default)
+
+All tools in a single docked workspace on the left side. Toggle with:
+
+```
+[Unified UI] checkbox in topbar
+```
+
+Adjust workspace width with the slider: `W [300-760]`
+
+### Separate Windows
+
+Disable Unified UI to use floating windows:
+
+- Toolbox (left)
+- Inspector (right)
+- Outliner (bottom-left)
+- Diagnostics (floating)
+
+Drag windows to customize layout.
+
+## Saving Reproduction Captures
+
+For bug reports and debugging, save a complete capture:
+
+<Steps>
+  <Step title="Set Up Scenario">
+    Draw a path, configure templates, generate network
+  </Step>
+  
+  <Step title="Capture State">
+    In DrawPath mode, click **Save Repro Capture**
+  </Step>
+  
+  <Step title="Find Capture File">
+    File saved to `captures/drawpath_repro_YYYYMMDD_HHMMSS.txt`
+  </Step>
+</Steps>
+
+The capture file includes:
+
+- Path points
+- Generation settings
+- Bundle templates and counts
+- Direction mode and cost breakdown
+- Lane assignments
+- Crossing analysis
+- Optional: Slot selection debug records (last N events)
+
+<Tip>
+Enable **Capture Slot Debug** and set **Capture Slot Debug Tail** to include detailed slot selection reasoning in the capture.
+</Tip>
+
+## Logs and Error Reporting
+
+The bottom of the workspace shows recent log messages (last 12 entries):
+
+- Generation results (poles/spans created)
+- Edit operations (moved, deleted)
+- Camera mode changes
+- Errors (red background on last error display)
+
+Check the **last_error** field in the UI for detailed error messages.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Debug Features" icon="microscope" href="/viewer/debugging">
+    Learn about debug overlays, dirty visualization, and diagnostic tools
+  </Card>
+  <Card title="Core API Reference" icon="code" href="/api/core-state">
+    Understand the CoreState API used by the viewer
+  </Card>
+</CardGroup>

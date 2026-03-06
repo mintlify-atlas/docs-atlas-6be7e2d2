@@ -1,0 +1,454 @@
+---
+title: Editing Poles, Ports, and Spans
+description: Modify existing network entities using Wire's editing API with automatic dirty propagation
+---
+
+## Overview
+
+Once you've built a pole network, you'll often need to modify it. Wire provides a comprehensive editing API that handles all the complexity of maintaining topology consistency, propagating changes to dependent geometry, and tracking what needs to be recalculated.
+
+## Editing Poles
+
+### Moving Poles
+
+Use `MovePole()` to reposition a pole. This automatically marks connected spans as dirty:
+
+```cpp
+using namespace wire::core;
+
+ObjectId pole_id = /* existing pole */;
+
+Transformd new_transform;
+new_transform.position = {100.0, 50.0, 0.0};
+new_transform.rotation_euler_deg = {0.0, 0.0, 45.0};  // Rotate 45 degrees
+
+auto result = state.MovePole(pole_id, new_transform);
+
+if (result.ok) {
+  // Check which spans were affected
+  for (ObjectId span_id : result.change_set.dirty_span_ids) {
+    std::cout << "Span " << span_id << " marked for recalc\n";
+  }
+  
+  // Commit to recalculate geometry
+  state.Commit();
+} else {
+  std::cerr << "Move failed: " << result.error << std::endl;
+}
+```
+
+### Setting Pole Tilt
+
+Adjust pole tilt independently from position:
+
+```cpp
+// Tilt a single pole (degrees)
+auto result = state.SetPoleTilt(
+  pole_id,
+  2.0,    // tilt_x_deg
+  1.5     // tilt_y_deg
+);
+
+// Apply same tilt to all poles
+auto batch_result = state.SetAllPoleTilt(2.0, 1.5);
+state.Commit();
+```
+
+### Applying Pole Types
+
+Change a pole's type definition to update its slot configuration:
+
+```cpp
+PoleTypeId new_type_id = 2;
+auto result = state.ApplyPoleType(pole_id, new_type_id);
+
+if (result.ok) {
+  state.Commit();
+  
+  // Inspect updated pole
+  PoleDetailInfo info = state.GetPoleDetail(pole_id);
+  std::cout << "Pole now has " 
+            << info.pole_type->port_slots.size() 
+            << " port slots\n";
+}
+```
+
+### Placement Mode Control
+
+Toggle between automatic and manual placement:
+
+```cpp
+// Mark as manually placed (won't be moved by regeneration)
+auto result = state.SetPolePlacementMode(
+  pole_id,
+  PlacementMode::kManual
+);
+
+// Return to automatic placement
+result = state.SetPolePlacementMode(
+  pole_id,
+  PlacementMode::kAuto
+);
+```
+
+### Flipping Pole Orientation
+
+```cpp
+// Flip pole 180 degrees around its local Z axis
+auto result = state.SetPoleFlip180(pole_id, true);
+state.Commit();
+
+// Restore original orientation
+result = state.SetPoleFlip180(pole_id, false);
+```
+
+## Editing Ports
+
+### Moving Ports
+
+Reposition a port in world space:
+
+```cpp
+ObjectId port_id = /* existing port */;
+
+Vec3d new_world_position = {50.0, 0.0, 12.0};
+auto result = state.MovePort(port_id, new_world_position);
+
+if (result.ok) {
+  // All spans using this port are now dirty
+  state.Commit();
+}
+```
+
+### Manual Port Positioning
+
+Set a port's position and switch it to manual mode:
+
+```cpp
+// Override automatic positioning
+auto result = state.SetPortWorldPositionManual(
+  port_id,
+  {55.0, 2.0, 11.5}
+);
+
+// The port will no longer update automatically from pole transforms
+```
+
+### Resetting Port Position
+
+Return a manually positioned port to automatic mode:
+
+```cpp
+auto result = state.ResetPortPositionToAuto(port_id);
+
+if (result.ok) {
+  state.Commit();
+  // Port position now derives from pole transform + slot template
+}
+```
+
+## Editing Spans
+
+### Deleting Spans
+
+Remove a span connection:
+
+```cpp
+auto result = state.DeleteSpan(span_id);
+
+if (result.ok) {
+  std::cout << "Deleted span " << span_id << std::endl;
+  state.Commit();
+}
+```
+
+### Splitting Spans
+
+Insert a new pole at a parametric position along a span:
+
+<Steps>
+  <Step title="Identify Split Point">
+    Choose a parametric position `t` between 0.0 and 1.0:
+    
+    ```cpp
+    ObjectId span_id = /* existing span */;
+    double t = 0.5;  // Split at midpoint
+    ```
+  </Step>
+  
+  <Step title="Execute Split">
+    ```cpp
+    auto result = state.SplitSpan(span_id, t);
+    
+    if (result.ok) {
+      ObjectId old_span = result.value.old_span_id;
+      ObjectId new_port = result.value.new_port_id;
+      ObjectId span_a = result.value.new_span_a_id;
+      ObjectId span_b = result.value.new_span_b_id;
+      
+      std::cout << "Created pole at split point\n";
+      std::cout << "Original span replaced by two new spans\n";
+    }
+    ```
+  </Step>
+  
+  <Step title="Commit Changes">
+    ```cpp
+    state.Commit();
+    ```
+  </Step>
+</Steps>
+
+The split operation:
+- Creates a new pole at the interpolated position
+- Creates a new port on that pole
+- Replaces the original span with two new spans
+- Marks the old span as deleted
+
+## Editing Anchors
+
+### Moving Anchors
+
+```cpp
+ObjectId anchor_id = /* existing anchor */;
+
+Vec3d new_position = {10.0, 5.0, 8.0};
+auto result = state.MoveAnchor(anchor_id, new_position);
+
+if (result.ok) {
+  // Spans using this anchor are marked dirty
+  state.Commit();
+}
+```
+
+## Editing Bundles
+
+### Updating Bundle Visual Settings
+
+While Wire doesn't provide direct bundle editing methods, you can update visual settings for all bundles:
+
+```cpp
+auto result = state.UpdateAllBundleVisualSettings(
+  0.04,      // sag_ratio
+  0.02,      // wire_radius_m
+  true,      // use_reference_length
+  true       // mark_all_spans_dirty
+);
+
+state.Commit();
+```
+
+### Resetting Span Reference Lengths
+
+```cpp
+// Recalculate reference lengths for all spans
+auto result = state.ResetAllSpanReferenceLengths(true);
+state.Commit();
+```
+
+## Editing Attachments
+
+### Adding Attachments to Spans
+
+```cpp
+ObjectId span_id = /* existing span */;
+
+// Add a damper at 25% along the span
+auto result = state.AddAttachment(
+  span_id,
+  0.25,                        // t (parametric position)
+  AttachmentKind::kDamper,
+  0.5                          // offset_m
+);
+
+if (result.ok) {
+  ObjectId attachment_id = result.value;
+  state.Commit();
+}
+```
+
+## Global Settings
+
+### Geometry Settings
+
+Update global geometry generation parameters:
+
+```cpp
+GeometrySettings settings = state.view().geometry_settings();
+
+// Modify settings
+settings.curve_samples = 16;           // More subdivision
+settings.sag_enabled = true;
+settings.sag_factor = 0.04;           // 4% sag
+settings.pole_clearance_m = 0.1;      // 10cm clearance
+
+auto result = state.UpdateGeometrySettings(
+  settings,
+  true  // mark_all_spans_dirty
+);
+
+state.Commit();
+```
+
+### Layout Settings
+
+Control automatic port layout behavior:
+
+```cpp
+LayoutSettings layout = state.view().layout_settings();
+
+layout.angle_correction_enabled = true;
+layout.corner_threshold_deg = 15.0;
+layout.min_side_scale = 0.8;
+layout.max_side_scale = 2.0;
+
+auto result = state.UpdateLayoutSettings(layout);
+state.Commit();
+```
+
+### Visual Settings
+
+Adjust visual cache generation:
+
+```cpp
+VisualSettings visual = state.view().visual_settings();
+
+visual.enable_support_structures = true;
+visual.enable_insulators = true;
+visual.support_center_threshold_m = 0.05;
+visual.insulator_length_m = 0.20;
+
+auto result = state.UpdateVisualSettings(
+  visual,
+  true  // mark_all_spans_dirty
+);
+
+state.Commit();
+```
+
+## Understanding EditResult
+
+All editing methods return `EditResult<T>` with detailed change tracking:
+
+```cpp
+template <typename TValue>
+struct EditResult {
+  bool ok;                    // Success/failure
+  TValue value;               // Return value (ID or data)
+  std::string error;          // Error message if !ok
+  ChangeSet change_set;       // What changed
+};
+
+struct ChangeSet {
+  std::vector<ObjectId> created_ids;      // New entities
+  std::vector<ObjectId> updated_ids;      // Modified entities
+  std::vector<ObjectId> deleted_ids;      // Removed entities
+  std::vector<ObjectId> dirty_span_ids;   // Spans needing recalc
+};
+```
+
+Example usage:
+
+```cpp
+auto result = state.MovePole(pole_id, transform);
+
+if (result.ok) {
+  std::cout << "Updated pole: " << result.value << std::endl;
+  
+  std::cout << "Created: " << result.change_set.created_ids.size() << std::endl;
+  std::cout << "Updated: " << result.change_set.updated_ids.size() << std::endl;
+  std::cout << "Dirty spans: " << result.change_set.dirty_span_ids.size() << std::endl;
+  
+  for (ObjectId id : result.change_set.dirty_span_ids) {
+    // React to specific span changes
+  }
+} else {
+  std::cerr << "Edit failed: " << result.error << std::endl;
+}
+```
+
+## Batch Editing Pattern
+
+For multiple edits, accumulate changes before committing:
+
+```cpp
+std::vector<ObjectId> updated_poles;
+
+// Make several edits
+for (ObjectId pole_id : pole_ids_to_move) {
+  Transformd transform = calculate_new_position(pole_id);
+  auto result = state.MovePole(pole_id, transform);
+  if (result.ok) {
+    updated_poles.push_back(result.value);
+  }
+}
+
+// Single commit handles all accumulated dirty flags
+CommitResult commit = state.Commit();
+
+std::cout << "Processed " 
+          << commit.recalc_stats.geometry_processed 
+          << " geometry updates\n";
+```
+
+## Error Handling Best Practices
+
+<AccordionGroup>
+  <Accordion title="Always Check ok Field">
+    ```cpp
+    auto result = state.AddPole(...);
+    if (!result.ok) {
+      // Handle error before using result.value
+      log_error(result.error);
+      return;
+    }
+    // Safe to use result.value here
+    ```
+  </Accordion>
+  
+  <Accordion title="Validate After Major Edits">
+    ```cpp
+    // Make edits
+    state.MovePole(...);
+    state.AddSpan(...);
+    
+    // Commit with validation
+    CommitOptions options;
+    options.run_validate = true;  // Thorough validation
+    CommitResult result = state.Commit(options);
+    
+    if (!result.validation.ok()) {
+      for (const auto& issue : result.validation.issues) {
+        std::cerr << issue.code << ": " << issue.message << std::endl;
+      }
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Use Fast Validation During Iteration">
+    ```cpp
+    // Quick topology checks
+    ValidationResult fast = state.ValidateFast();
+    if (!fast.ok()) {
+      // Fix issues before full commit
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Building Networks" icon="diagram-project" href="/guides/building-networks">
+    Learn how to create pole networks from scratch
+  </Card>
+  <Card title="Incremental Recalc" icon="arrows-rotate" href="/guides/incremental-recalc">
+    Understand dirty tracking and recalculation
+  </Card>
+  <Card title="Validation System" icon="shield-check" href="/guides/validation">
+    Deep dive into validation and error detection
+  </Card>
+  <Card title="Core State API" icon="code" href="/api/core-state">
+    Complete API reference for all editing methods
+  </Card>
+</CardGroup>

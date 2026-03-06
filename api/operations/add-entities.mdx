@@ -1,0 +1,318 @@
+---
+title: "Adding Entities"
+description: "API reference for adding poles, ports, spans, bundles, anchors, and attachments to the Wire network"
+---
+
+## AddPole
+
+Creates a new pole entity at the specified world transform.
+
+```cpp
+EditResult<ObjectId> AddPole(
+    const Transformd& world_transform,
+    double height_m = 10.0,
+    std::string_view name = {},
+    PoleKind kind = PoleKind::kGeneric,
+    PlacementMode placement_mode = PlacementMode::kAuto
+);
+```
+
+<ParamField path="world_transform" type="Transformd" required>
+  The world-space transform containing position, rotation (Euler angles in degrees), and scale
+</ParamField>
+
+<ParamField path="height_m" type="double" default="10.0">
+  Height of the pole in meters
+</ParamField>
+
+<ParamField path="name" type="std::string_view" default="">
+  Optional human-readable name for the pole
+</ParamField>
+
+<ParamField path="kind" type="PoleKind" default="kGeneric">
+  Classification of the pole structure: `kGeneric`, `kWood`, `kConcrete`, or `kSteel`
+</ParamField>
+
+<ParamField path="placement_mode" type="PlacementMode" default="kAuto">
+  Whether the pole position is managed automatically (`kAuto`) or manually (`kManual`)
+</ParamField>
+
+**Returns:** `EditResult<ObjectId>` containing the new pole ID if successful
+
+### Example
+
+```cpp
+wire::core::CoreState state;
+
+// Create a pole at origin with 12m height
+wire::core::Transformd transform{};
+transform.position = {0.0, 0.0, 0.0};
+transform.rotation_euler_deg = {0.0, 0.0, 0.0};
+
+auto result = state.AddPole(transform, 12.0, "Main Pole", 
+                           wire::core::PoleKind::kWood);
+
+if (result.ok) {
+    wire::core::ObjectId pole_id = result.value;
+    // Use pole_id for further operations
+}
+```
+
+---
+
+## AddPort
+
+Creates a new port (connection endpoint) attached to a pole.
+
+```cpp
+EditResult<ObjectId> AddPort(
+    ObjectId owner_pole_id,
+    const Vec3d& world_position,
+    PortKind kind = PortKind::kGeneric,
+    PortLayer layer = PortLayer::kUnknown,
+    const Frame3d& direction = {}
+);
+```
+
+<ParamField path="owner_pole_id" type="ObjectId" required>
+  ID of the pole that owns this port
+</ParamField>
+
+<ParamField path="world_position" type="Vec3d" required>
+  World-space position of the port
+</ParamField>
+
+<ParamField path="kind" type="PortKind" default="kGeneric">
+  Type of port: `kGeneric`, `kPower`, or `kCommunication`
+</ParamField>
+
+<ParamField path="layer" type="PortLayer" default="kUnknown">
+  Network layer: `kUnknown`, `kHighVoltage`, `kLowVoltage`, `kCommunication`, or `kOptical`
+</ParamField>
+
+<ParamField path="direction" type="Frame3d" default="{}">
+  Optional directional frame for oriented port attachments
+</ParamField>
+
+**Returns:** `EditResult<ObjectId>` containing the new port ID if successful
+
+### Example
+
+```cpp
+// Add two ports at different heights on the pole
+auto port_a = state.AddPort(pole_id, {0.0, 0.0, 8.0}, 
+                           wire::core::PortKind::kPower,
+                           wire::core::PortLayer::kHighVoltage);
+
+auto port_b = state.AddPort(pole_id, {10.0, 0.0, 8.0},
+                           wire::core::PortKind::kPower,
+                           wire::core::PortLayer::kHighVoltage);
+```
+
+---
+
+## AddSpan
+
+Creates a new span (wire connection) between two ports.
+
+```cpp
+EditResult<ObjectId> AddSpan(
+    ObjectId port_a_id,
+    ObjectId port_b_id,
+    SpanKind kind = SpanKind::kGeneric,
+    SpanLayer layer = SpanLayer::kUnknown,
+    ObjectId bundle_id = kInvalidObjectId,
+    ObjectId anchor_a_id = kInvalidObjectId,
+    ObjectId anchor_b_id = kInvalidObjectId
+);
+```
+
+<ParamField path="port_a_id" type="ObjectId" required>
+  ID of the first port endpoint
+</ParamField>
+
+<ParamField path="port_b_id" type="ObjectId" required>
+  ID of the second port endpoint
+</ParamField>
+
+<ParamField path="kind" type="SpanKind" default="kGeneric">
+  Span classification: `kGeneric`, `kDistribution`, or `kService`
+</ParamField>
+
+<ParamField path="layer" type="SpanLayer" default="kUnknown">
+  Network layer: `kUnknown`, `kHighVoltage`, `kLowVoltage`, `kCommunication`, or `kOptical`
+</ParamField>
+
+<ParamField path="bundle_id" type="ObjectId" default="kInvalidObjectId">
+  Optional bundle ID for grouped conductor spans
+</ParamField>
+
+<ParamField path="anchor_a_id" type="ObjectId" default="kInvalidObjectId">
+  Optional anchor at first endpoint for tensioned support
+</ParamField>
+
+<ParamField path="anchor_b_id" type="ObjectId" default="kInvalidObjectId">
+  Optional anchor at second endpoint for tensioned support
+</ParamField>
+
+**Returns:** `EditResult<ObjectId>` containing the new span ID if successful
+
+### Example
+
+```cpp
+// Connect two ports with a distribution span
+auto span_result = state.AddSpan(
+    port_a.value, 
+    port_b.value,
+    wire::core::SpanKind::kDistribution,
+    wire::core::SpanLayer::kHighVoltage
+);
+
+if (span_result.ok) {
+    // Span created successfully
+    auto span_id = span_result.value;
+}
+```
+
+---
+
+## AddBundle
+
+Creates a new bundle defining conductor grouping parameters.
+
+```cpp
+EditResult<ObjectId> AddBundle(
+    int conductor_count,
+    double phase_spacing_m,
+    BundleKind kind = BundleKind::kLowVoltage
+);
+```
+
+<ParamField path="conductor_count" type="int" required>
+  Number of conductors in the bundle
+</ParamField>
+
+<ParamField path="phase_spacing_m" type="double" required>
+  Spacing between conductors in meters
+</ParamField>
+
+<ParamField path="kind" type="BundleKind" default="kLowVoltage">
+  Bundle type: `kLowVoltage`, `kHighVoltage`, `kCommunication`, or `kOptical`
+</ParamField>
+
+**Returns:** `EditResult<ObjectId>` containing the new bundle ID if successful
+
+### Example
+
+```cpp
+// Create a 3-phase high voltage bundle with 0.3m spacing
+auto bundle = state.AddBundle(
+    3,                                    // conductor_count
+    0.3,                                  // phase_spacing_m
+    wire::core::BundleKind::kHighVoltage
+);
+
+// Use bundle for multiple spans
+auto span1 = state.AddSpan(port_a, port_b, 
+                          wire::core::SpanKind::kDistribution,
+                          wire::core::SpanLayer::kHighVoltage,
+                          bundle.value);
+```
+
+---
+
+## AddAnchor
+
+Creates a new anchor point for mechanical support.
+
+```cpp
+EditResult<ObjectId> AddAnchor(
+    ObjectId owner_pole_id,
+    const Vec3d& world_position,
+    AnchorSupportKind support_kind = AnchorSupportKind::kGeneric,
+    double support_strength = 1.0
+);
+```
+
+<ParamField path="owner_pole_id" type="ObjectId" required>
+  ID of the pole that owns this anchor
+</ParamField>
+
+<ParamField path="world_position" type="Vec3d" required>
+  World-space position of the anchor point
+</ParamField>
+
+<ParamField path="support_kind" type="AnchorSupportKind" default="kGeneric">
+  Type of support: `kGeneric`, `kGround`, `kBuilding`, or `kMidair`
+</ParamField>
+
+<ParamField path="support_strength" type="double" default="1.0">
+  Relative strength coefficient for load distribution (0.0 to 1.0+)
+</ParamField>
+
+**Returns:** `EditResult<ObjectId>` containing the new anchor ID if successful
+
+### Example
+
+```cpp
+// Add ground anchor for guy-wire support
+auto anchor = state.AddAnchor(
+    pole_id,
+    {5.0, 5.0, 0.0},                     // Ground position
+    wire::core::AnchorSupportKind::kGround,
+    1.5                                   // 150% normal strength
+);
+```
+
+---
+
+## AddAttachment
+
+Creates a new attachment on a span at a parametric position.
+
+```cpp
+EditResult<ObjectId> AddAttachment(
+    ObjectId span_id,
+    double t,
+    AttachmentKind kind = AttachmentKind::kGeneric,
+    double offset_m = 0.0
+);
+```
+
+<ParamField path="span_id" type="ObjectId" required>
+  ID of the span to attach to
+</ParamField>
+
+<ParamField path="t" type="double" required>
+  Parametric position along span (0.0 = start, 1.0 = end)
+</ParamField>
+
+<ParamField path="kind" type="AttachmentKind" default="kGeneric">
+  Type of attachment: `kGeneric`, `kDamper`, `kSpacer`, or `kMarker`
+</ParamField>
+
+<ParamField path="offset_m" type="double" default="0.0">
+  Perpendicular offset from span centerline in meters
+</ParamField>
+
+**Returns:** `EditResult<ObjectId>` containing the new attachment ID if successful
+
+### Example
+
+```cpp
+// Add a vibration damper at 1/3 along the span
+auto damper = state.AddAttachment(
+    span_id,
+    0.333,                                // t parameter
+    wire::core::AttachmentKind::kDamper,
+    0.0                                   // No offset
+);
+
+// Add a marker at midpoint with offset
+auto marker = state.AddAttachment(
+    span_id,
+    0.5,
+    wire::core::AttachmentKind::kMarker,
+    0.2                                   // 20cm perpendicular offset
+);
+```

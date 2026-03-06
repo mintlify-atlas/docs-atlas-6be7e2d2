@@ -1,0 +1,294 @@
+---
+title: "Movement and Transformation"
+description: "API reference for moving poles, ports, and anchors, and adjusting pole orientation"
+---
+
+## MovePole
+
+Updates the world-space transform of a pole. Connected ports and spans are automatically marked dirty for recalculation.
+
+```cpp
+EditResult<ObjectId> MovePole(
+    ObjectId pole_id,
+    const Transformd& new_world_transform
+);
+```
+
+<ParamField path="pole_id" type="ObjectId" required>
+  ID of the pole to move
+</ParamField>
+
+<ParamField path="new_world_transform" type="Transformd" required>
+  New world-space transform containing position, rotation (Euler angles in degrees), and scale
+</ParamField>
+
+**Returns:** `EditResult<ObjectId>` containing the pole ID if successful. The `change_set` field includes IDs of affected spans.
+
+### Example
+
+```cpp
+wire::core::CoreState state;
+
+// Move pole to new position and rotate
+wire::core::Transformd new_transform{};
+new_transform.position = {50.0, 30.0, 0.0};
+new_transform.rotation_euler_deg = {0.0, 0.0, 45.0};  // 45° yaw rotation
+
+auto result = state.MovePole(pole_id, new_transform);
+
+if (result.ok) {
+    // Check which spans were affected
+    for (auto span_id : result.change_set.dirty_span_ids) {
+        // These spans need geometry recalculation
+    }
+}
+```
+
+---
+
+## SetPoleTilt
+
+Adjusts the tilt angles of a pole without changing its position.
+
+```cpp
+EditResult<ObjectId> SetPoleTilt(
+    ObjectId pole_id,
+    double tilt_x_deg,
+    double tilt_y_deg
+);
+```
+
+<ParamField path="pole_id" type="ObjectId" required>
+  ID of the pole to tilt
+</ParamField>
+
+<ParamField path="tilt_x_deg" type="double" required>
+  Tilt angle around X-axis in degrees (pitch)
+</ParamField>
+
+<ParamField path="tilt_y_deg" type="double" required>
+  Tilt angle around Y-axis in degrees (roll)
+</ParamField>
+
+**Returns:** `EditResult<ObjectId>` containing the pole ID if successful
+
+### Example
+
+```cpp
+// Tilt pole 2° in X and 1° in Y to simulate lean
+auto result = state.SetPoleTilt(pole_id, 2.0, 1.0);
+
+if (result.ok) {
+    // Pole tilt updated, connected spans marked dirty
+}
+```
+
+### Related
+
+See also `SetAllPoleTilt` to apply uniform tilt to all poles in the network:
+
+```cpp
+EditResult<bool> SetAllPoleTilt(double tilt_x_deg, double tilt_y_deg);
+```
+
+---
+
+## MovePort
+
+Updates the world-space position of a port. Connected spans are automatically marked dirty.
+
+```cpp
+EditResult<ObjectId> MovePort(
+    ObjectId port_id,
+    const Vec3d& new_world_position
+);
+```
+
+<ParamField path="port_id" type="ObjectId" required>
+  ID of the port to move
+</ParamField>
+
+<ParamField path="new_world_position" type="Vec3d" required>
+  New world-space position for the port
+</ParamField>
+
+**Returns:** `EditResult<ObjectId>` containing the port ID if successful
+
+### Example
+
+```cpp
+// Adjust port height after initial placement
+wire::core::Vec3d new_position = {10.0, 0.0, 9.5};  // Raise to 9.5m
+
+auto result = state.MovePort(port_id, new_position);
+
+if (result.ok) {
+    // Port moved, spans recalculated
+}
+```
+
+---
+
+## SetPortWorldPositionManual
+
+Explicitly sets a port to manual positioning mode and updates its position. This overrides automatic template-based positioning.
+
+```cpp
+EditResult<ObjectId> SetPortWorldPositionManual(
+    ObjectId port_id,
+    const Vec3d& new_world_position
+);
+```
+
+<ParamField path="port_id" type="ObjectId" required>
+  ID of the port to set to manual mode
+</ParamField>
+
+<ParamField path="new_world_position" type="Vec3d" required>
+  New world-space position for the port
+</ParamField>
+
+**Returns:** `EditResult<ObjectId>` containing the port ID if successful
+
+<Note>
+  This method changes the port's `position_mode` to `PortPositionMode::kManual`, meaning the port will no longer update automatically when the pole moves or rotates.
+</Note>
+
+### Example
+
+```cpp
+// Override automatic slot positioning with custom location
+auto result = state.SetPortWorldPositionManual(port_id, {12.0, 1.5, 8.0});
+
+if (result.ok) {
+    // Port is now manually positioned and won't auto-update
+}
+```
+
+---
+
+## ResetPortPositionToAuto
+
+Resets a port back to automatic positioning mode, re-enabling template-based placement.
+
+```cpp
+EditResult<ObjectId> ResetPortPositionToAuto(ObjectId port_id);
+```
+
+<ParamField path="port_id" type="ObjectId" required>
+  ID of the port to reset to automatic mode
+</ParamField>
+
+**Returns:** `EditResult<ObjectId>` containing the port ID if successful
+
+<Note>
+  After resetting to auto mode, the port position will be recalculated based on its owner pole's transform and the port's template slot definition (if applicable).
+</Note>
+
+### Example
+
+```cpp
+// Restore automatic positioning after manual edit
+auto result = state.ResetPortPositionToAuto(port_id);
+
+if (result.ok) {
+    // Port position now managed automatically by pole template
+}
+```
+
+---
+
+## MoveAnchor
+
+Updates the world-space position of an anchor point.
+
+```cpp
+EditResult<ObjectId> MoveAnchor(
+    ObjectId anchor_id,
+    const Vec3d& new_world_position
+);
+```
+
+<ParamField path="anchor_id" type="ObjectId" required>
+  ID of the anchor to move
+</ParamField>
+
+<ParamField path="new_world_position" type="Vec3d" required>
+  New world-space position for the anchor
+</ParamField>
+
+**Returns:** `EditResult<ObjectId>` containing the anchor ID if successful. Spans connected to this anchor are marked dirty.
+
+### Example
+
+```cpp
+// Reposition ground anchor after terrain adjustment
+wire::core::Vec3d new_anchor_pos = {8.0, 8.0, 0.0};
+
+auto result = state.MoveAnchor(anchor_id, new_anchor_pos);
+
+if (result.ok) {
+    // Anchor repositioned, tensioned spans updated
+}
+```
+
+---
+
+## Working with EditResult
+
+All transformation operations return `EditResult<T>` structures containing:
+
+<ResponseField name="ok" type="bool">
+  `true` if the operation succeeded, `false` otherwise
+</ResponseField>
+
+<ResponseField name="value" type="T">
+  The resulting value (typically an ObjectId)
+</ResponseField>
+
+<ResponseField name="error" type="std::string">
+  Error message if operation failed
+</ResponseField>
+
+<ResponseField name="change_set" type="ChangeSet">
+  Details about entities created, updated, or deleted
+</ResponseField>
+
+### ChangeSet Structure
+
+```cpp
+struct ChangeSet {
+    std::vector<ObjectId> created_ids;   // Newly created entities
+    std::vector<ObjectId> updated_ids;   // Modified entities
+    std::vector<ObjectId> deleted_ids;   // Removed entities
+    std::vector<ObjectId> dirty_span_ids; // Spans needing recalc
+};
+```
+
+### Complete Example
+
+```cpp
+wire::core::CoreState state;
+
+// Create initial network
+auto pole_a = state.AddPole({}, 12.0);
+auto pole_b = state.AddPole({{50.0, 0.0, 0.0}}, 12.0);
+auto port_a = state.AddPort(pole_a.value, {0.0, 0.0, 10.0});
+auto port_b = state.AddPort(pole_b.value, {50.0, 0.0, 10.0});
+auto span = state.AddSpan(port_a.value, port_b.value);
+
+// Move pole B to new location
+wire::core::Transformd new_pos{};
+new_pos.position = {60.0, 10.0, 0.0};
+
+auto move_result = state.MovePole(pole_b.value, new_pos);
+
+if (move_result.ok) {
+    // Commit changes to trigger recalculation
+    auto commit = state.Commit();
+    
+    if (commit.validation.ok()) {
+        // Network updated successfully
+    }
+}
+```

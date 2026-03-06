@@ -1,0 +1,561 @@
+---
+title: Incremental Recalculation and Dirty Tracking
+description: Understand Wire's efficient version-based dirty tracking system for partial geometry updates
+---
+
+## Overview
+
+Wire uses a sophisticated dirty tracking system to minimize recalculation work. When you edit a pole or port, only the affected spans are marked dirty and recalculated during `Commit()`. This enables efficient real-time editing even in large networks with thousands of spans.
+
+## The Dirty Tracking System
+
+### Architecture Layers
+
+Wire maintains strict separation between layers:
+
+1. **Entity Layer** (Persistent) — Authoritative data (Pole, Port, Span, Bundle)
+2. **Cache Layer** (Derived) — Computed geometry (curve points, bounding boxes, visual parts)
+3. **Runtime Layer** (Transient) — Version counters and dirty flags per span
+4. **Debug Layer** (Session) — Non-authoritative diagnostic data
+
+### Dirty Flags
+
+Each span tracks which aspects need recomputation:
+
+```cpp
+enum class DirtyBits : std::uint32_t {
+  kNone = 0,
+  kTopology = 1u << 0,    // Endpoint references changed
+  kGeometry = 1u << 1,    // Curve samples need rebuild
+  kBounds = 1u << 2,      // AABB needs rebuild
+  kRender = 1u << 3,      // Visual parts need rebuild
+  kRaycast = 1u << 4,     // Raycast data needs rebuild (future)
+};
+```
+
+You can combine flags using bitwise operators:
+
+```cpp
+DirtyBits combined = DirtyBits::kGeometry | DirtyBits::kBounds;
+
+if (any(combined, DirtyBits::kGeometry)) {
+  // Geometry flag is set
+}
+```
+
+## Span Runtime State
+
+### Version Tracking
+
+Each span maintains independent version counters:
+
+```cpp
+struct SpanRuntimeState {
+  ObjectId span_id;
+  std::uint64_t data_version;       // Incremented on topology change
+  std::uint64_t geometry_version;   // Incremented on curve rebuild
+  std::uint64_t bounds_version;     // Incremented on AABB rebuild
+  std::uint64_t render_version;     // Incremented on visual rebuild
+  std::uint64_t raycast_version;    // For future raycast cache
+  DirtyBits dirty_bits;             // Current dirty flags
+};
+```
+
+Access runtime state through `CoreView`:
+
+```cpp
+CoreView view = state.view();
+const SpanRuntimeState* runtime = view.find_span_runtime_state(span_id);
+
+if (runtime) {
+  std::cout << "Data version: " << runtime->data_version << std::endl;
+  std::cout << "Geometry version: " << runtime->geometry_version << std::endl;
+  
+  if (any(runtime->dirty_bits, DirtyBits::kGeometry)) {
+    std::cout << "Span needs geometry recalc\n";
+  }
+}
+```
+
+### Dirty Queues
+
+Wire maintains work queues for each recalculation phase:
+
+```cpp
+struct DirtyQueue {
+  std::vector<ObjectId> topology_dirty_span_ids;
+  std::vector<ObjectId> geometry_dirty_span_ids;
+  std::vector<ObjectId> bounds_dirty_span_ids;
+  std::vector<ObjectId> render_dirty_span_ids;
+  std::vector<ObjectId> raycast_dirty_span_ids;
+};
+```
+
+Inspect queues before committing:
+
+```cpp
+CoreView view = state.view();
+const DirtyQueue& queue = view.dirty_queue();
+
+std::cout << "Geometry dirty: " << queue.geometry_dirty_span_ids.size() << std::endl;
+std::cout << "Bounds dirty: " << queue.bounds_dirty_span_ids.size() << std::endl;
+std::cout << "Render dirty: " << queue.render_dirty_span_ids.size() << std::endl;
+```
+
+## How Dirty Propagation Works
+
+### Edit Operations Trigger Marking
+
+When you modify an entity, Wire automatically marks affected spans:
+
+<Steps>
+  <Step title="Edit Operation">
+    ```cpp
+    auto result = state.MovePole(pole_id, new_transform);
+    ```
+  </Step>
+  
+  <Step title="Dependency Analysis">
+    Wire finds all ports owned by the pole:
+    
+    ```cpp
+    // Internal: RelationIndex lookup
+    std::vector<ObjectId> port_ids = relation_index.ports_by_pole[pole_id];
+    ```
+  </Step>
+  
+  <Step title="Span Marking">
+    For each port, find connected spans:
+    
+    ```cpp
+    // Internal: ConnectionIndex lookup
+    for (ObjectId port_id : port_ids) {
+      std::vector<ObjectId> span_ids = 
+        connection_index.spans_by_port[port_id];
+      
+      for (ObjectId span_id : span_ids) {
+        // Mark span dirty
+        mark_span_dirty(span_id, 
+          DirtyBits::kGeometry | DirtyBits::kBounds | DirtyBits::kRender);
+      }
+    }
+    ```
+  </Step>
+  
+  <Step title="ChangeSet Population">
+    ```cpp
+    // EditResult includes all dirty spans
+    result.change_set.dirty_span_ids = {span1, span2, span3, ...};
+    ```
+  </Step>
+</Steps>
+
+### Dependency Chain
+
+```
+Pole Edit
+   |
+   v
+Ports Owned by Pole
+   |
+   v
+Spans Connected to Ports
+   |
+   v
+Dirty Flags Set (kGeometry | kBounds | kRender)
+   |
+   v
+Added to DirtyQueue
+   |
+   v
+Processed in Commit()
+```
+
+## The Commit Process
+
+### Commit Options
+
+```cpp
+struct CommitOptions {
+  bool run_recalc = true;           // Process dirty queues
+  bool run_validate_fast = true;    // Quick validation
+  bool run_validate = false;        // Thorough validation
+};
+```
+
+### Default Commit
+
+```cpp
+// Processes all dirty spans, runs fast validation
+CommitResult result = state.Commit();
+
+std::cout << "Recalc stats:\n";
+std::cout << "  Topology: " << result.recalc_stats.topology_processed << std::endl;
+std::cout << "  Geometry: " << result.recalc_stats.geometry_processed << std::endl;
+std::cout << "  Bounds: " << result.recalc_stats.bounds_processed << std::endl;
+std::cout << "  Render: " << result.recalc_stats.render_processed << std::endl;
+
+if (result.validation.has_errors()) {
+  for (const auto& issue : result.validation.issues) {
+    std::cerr << "[" << issue.code << "] " << issue.message << std::endl;
+  }
+}
+```
+
+### Custom Commit
+
+```cpp
+// Skip recalc (dangerous - use only for batched reads)
+CommitOptions options;
+options.run_recalc = false;
+options.run_validate_fast = false;
+CommitResult result = state.Commit(options);
+
+// Full validation (slower, but thorough)
+CommitOptions strict;
+strict.run_validate = true;  // In addition to fast validation
+CommitResult result = state.Commit(strict);
+```
+
+### Recalculation Phases
+
+During `Commit()`, Wire processes dirty queues in order:
+
+1. **Topology Phase** — Update connection indices
+2. **Geometry Phase** — Rebuild curve samples
+3. **Bounds Phase** — Recalculate AABBs
+4. **Render Phase** — Rebuild visual parts (support arms, insulators)
+5. **Raycast Phase** — (Reserved for future raycasting optimization)
+
+## Cache Entries
+
+### Curve Cache
+
+Stores sampled wire geometry:
+
+```cpp
+struct CurveCacheEntry {
+  std::vector<Vec3d> points;          // Sampled curve points
+  std::uint64_t source_version;       // Geometry version when built
+};
+```
+
+Access curve data:
+
+```cpp
+const CurveCacheEntry* curve = state.find_curve_cache(span_id);
+
+if (curve) {
+  std::cout << "Curve has " << curve->points.size() << " samples\n";
+  std::cout << "Built at geometry version " << curve->source_version << std::endl;
+  
+  // Use points for rendering
+  for (const Vec3d& point : curve->points) {
+    render_vertex(point);
+  }
+}
+```
+
+### Bounds Cache
+
+Stores spatial bounding boxes:
+
+```cpp
+struct BoundsCacheEntry {
+  AABBd whole;                        // Entire span AABB
+  std::vector<AABBd> segments;        // Per-segment AABBs
+  std::uint64_t source_version;       // Bounds version when built
+};
+```
+
+Use for culling:
+
+```cpp
+const BoundsCacheEntry* bounds = state.find_bounds_cache(span_id);
+
+if (bounds) {
+  const AABBd& box = bounds->whole;
+  
+  if (camera_frustum_contains(box)) {
+    // Render this span
+  }
+  
+  // Fine-grained culling
+  for (const AABBd& segment_box : bounds->segments) {
+    if (camera_frustum_contains(segment_box)) {
+      // Render this segment
+    }
+  }
+}
+```
+
+### Visual Cache
+
+Stores derived visual elements:
+
+```cpp
+struct SpanVisualCacheEntry {
+  std::vector<VisualPart> parts;      // Support arms, insulators, fittings
+  std::uint64_t source_version;       // Render version when built
+};
+
+struct VisualPart {
+  VisualPartKind kind;                // kSupportArm, kInsulator, kFitting
+  Vec3d a;                            // Start position
+  Vec3d b;                            // End position
+  double radius_m;                    // Cylinder radius
+};
+```
+
+Render support structures:
+
+```cpp
+const SpanVisualCacheEntry* visual = state.find_span_visual_cache(span_id);
+
+if (visual) {
+  for (const VisualPart& part : visual->parts) {
+    switch (part.kind) {
+      case VisualPartKind::kSupportArm:
+        render_cylinder(part.a, part.b, part.radius_m, color_metal);
+        break;
+      case VisualPartKind::kInsulator:
+        render_cylinder(part.a, part.b, part.radius_m, color_ceramic);
+        break;
+      case VisualPartKind::kFitting:
+        render_cylinder(part.a, part.b, part.radius_m, color_metal);
+        break;
+    }
+  }
+}
+```
+
+## Optimization Patterns
+
+### Batching Edits
+
+```cpp
+// BAD: Commit after every edit (slow)
+for (ObjectId pole_id : poles) {
+  state.MovePole(pole_id, transforms[pole_id]);
+  state.Commit();  // Expensive!
+}
+
+// GOOD: Accumulate edits, commit once
+for (ObjectId pole_id : poles) {
+  state.MovePole(pole_id, transforms[pole_id]);
+}
+state.Commit();  // Single recalc pass
+```
+
+### Checking Dirty State
+
+```cpp
+// Before committing, check if work is needed
+CoreView view = state.view();
+const DirtyQueue& queue = view.dirty_queue();
+
+if (queue.geometry_dirty_span_ids.empty() && 
+    queue.bounds_dirty_span_ids.empty()) {
+  // No work needed, skip commit
+  return;
+}
+
+// Proceed with commit
+state.Commit();
+```
+
+### Partial Recalc
+
+If you only need specific cache data:
+
+```cpp
+CommitOptions options;
+options.run_recalc = true;
+options.run_validate_fast = false;  // Skip validation
+
+CommitResult result = state.Commit(options);
+
+// Now curve and bounds caches are up-to-date
+// Visual cache is also rebuilt
+```
+
+### Deferred Validation
+
+```cpp
+// Fast editing loop
+for (int i = 0; i < edit_count; ++i) {
+  perform_edit(state, i);
+  
+  CommitOptions options;
+  options.run_validate_fast = false;  // Skip validation
+  state.Commit(options);
+}
+
+// Final validation
+CommitOptions validate;
+validate.run_validate = true;
+CommitResult result = state.Commit(validate);
+
+if (!result.validation.ok()) {
+  // Handle errors
+}
+```
+
+## Version-Based Cache Invalidation
+
+### How Version Matching Works
+
+Wire uses version numbers to detect stale caches:
+
+```cpp
+// Pseudocode: Internal cache rebuild logic
+if (curve_cache.source_version != runtime.geometry_version) {
+  // Cache is stale, rebuild it
+  rebuild_span_curve(span_id);
+  curve_cache.source_version = runtime.geometry_version;
+}
+```
+
+Your code can use the same pattern:
+
+```cpp
+struct MyCustomCache {
+  ObjectId span_id;
+  std::vector<MyData> custom_geometry;
+  std::uint64_t cached_geometry_version;
+};
+
+std::unordered_map<ObjectId, MyCustomCache> my_cache;
+
+void UpdateMyCache(const CoreState& state, ObjectId span_id) {
+  const SpanRuntimeState* runtime = 
+    state.view().find_span_runtime_state(span_id);
+  
+  auto it = my_cache.find(span_id);
+  if (it == my_cache.end() || 
+      it->second.cached_geometry_version != runtime->geometry_version) {
+    // Rebuild custom cache
+    MyCustomCache entry;
+    entry.span_id = span_id;
+    entry.custom_geometry = compute_custom_geometry(state, span_id);
+    entry.cached_geometry_version = runtime->geometry_version;
+    my_cache[span_id] = entry;
+  }
+}
+```
+
+## Inspecting Recalc Stats
+
+### Per-Commit Statistics
+
+```cpp
+CommitResult result = state.Commit();
+
+const RecalcStats& stats = result.recalc_stats;
+
+std::cout << "Recalculation Summary:\n";
+std::cout << "  Topology: " << stats.topology_processed << " spans\n";
+std::cout << "  Geometry: " << stats.geometry_processed << " spans\n";
+std::cout << "  Bounds: " << stats.bounds_processed << " spans\n";
+std::cout << "  Render: " << stats.render_processed << " spans\n";
+std::cout << "  Total: " << stats.total_processed() << " operations\n";
+```
+
+### Historical Stats
+
+```cpp
+// CoreView caches last recalc stats
+CoreView view = state.view();
+const RecalcStats& last = view.last_recalc_stats();
+
+std::cout << "Last commit processed " 
+          << last.total_processed() << " operations\n";
+```
+
+## Advanced: Manual Dirty Marking
+
+<Warning>
+Wire's internal dirty marking is not exposed in the public API. This section describes the conceptual model for understanding the system.
+</Warning>
+
+Internally, Wire marks spans dirty using:
+
+```cpp
+// Conceptual internal API (not publicly exposed)
+void mark_span_dirty(ObjectId span_id, DirtyBits bits, bool bump_version);
+```
+
+The `bump_version` flag controls whether `data_version` is incremented, which triggers cascade updates.
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Always Commit After Edits">
+    Never read cache data without committing first:
+    
+    ```cpp
+    state.MovePole(pole_id, transform);
+    
+    // WRONG: Cache is stale
+    const CurveCacheEntry* curve = state.find_curve_cache(span_id);
+    
+    // CORRECT: Commit first
+    state.Commit();
+    const CurveCacheEntry* curve = state.find_curve_cache(span_id);
+    ```
+  </Accordion>
+  
+  <Accordion title="Batch Edits for Performance">
+    Group related edits before committing:
+    
+    ```cpp
+    // Efficient
+    for (auto edit : edits) {
+      apply_edit(state, edit);
+    }
+    state.Commit();  // Once
+    ```
+  </Accordion>
+  
+  <Accordion title="Check Version Numbers for Custom Caches">
+    If you build your own caches, use `geometry_version` to detect staleness:
+    
+    ```cpp
+    if (my_cache.version != runtime->geometry_version) {
+      rebuild_cache();
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Use Fast Validation During Editing">
+    Save thorough validation for final checks:
+    
+    ```cpp
+    // During interactive editing
+    CommitOptions fast;
+    fast.run_validate_fast = true;
+    fast.run_validate = false;
+    
+    // Before saving
+    CommitOptions thorough;
+    thorough.run_validate = true;
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Editing Entities" icon="pen" href="/guides/editing-entities">
+    Learn which edits trigger which dirty flags
+  </Card>
+  <Card title="Validation System" icon="shield-check" href="/guides/validation">
+    Understand validation in the commit process
+  </Card>
+  <Card title="Building Networks" icon="diagram-project" href="/guides/building-networks">
+    See dirty tracking in context of network creation
+  </Card>
+  <Card title="Core State API" icon="code" href="/api/core-state">
+    Complete API reference for commit and cache access
+  </Card>
+</CardGroup>

@@ -1,0 +1,517 @@
+---
+title: Coordinate System
+description: Understanding Wire's coordinate conventions, transforms, and double-precision mathematics
+---
+
+## Overview
+
+Wire uses **Unreal Engine coordinate conventions** with **double-precision mathematics** for geospatial accuracy. Understanding the coordinate system and transform conventions is essential for integrating Wire with game engines and working with real-world geographic data.
+
+<CardGroup cols={2}>
+  <Card title="Coordinate Convention" icon="compass">
+    X=Forward, Y=Right, Z=Up (Unreal Engine left-handed system)
+  </Card>
+  <Card title="Units" icon="ruler">
+    Centimeters with double precision (±0.01mm accuracy)
+  </Card>
+  <Card title="Rotation" icon="rotate">
+    Euler angles in degrees (pitch, yaw, roll)
+  </Card>
+  <Card title="Frame Conventions" icon="arrows-to-dot">
+    Right-handed local frames for directional calculations
+  </Card>
+</CardGroup>
+
+## Coordinate Convention
+
+### Axis Orientation
+
+Wire uses the **Unreal Engine left-handed coordinate system**:
+
+```cpp
+// Coordinate system axes
+X-axis: Forward (red)     — Points "north" or forward direction
+Y-axis: Right (green)     — Points right (east)
+Z-axis: Up (blue)         — Points up (vertical)
+```
+
+<Frame>
+  <img src="/images/coordinate-system.png" alt="Wire coordinate system visualization" />
+</Frame>
+
+<Warning>
+This is a **left-handed system**. If you're integrating with engines that use right-handed coordinates (Unity, OpenGL), you'll need to convert axes:
+
+```cpp
+// Unreal (Wire) → Unity conversion
+Unity.x = Wire.x;   // Forward
+Unity.y = Wire.z;   // Up  
+Unity.z = Wire.y;   // Right
+```
+</Warning>
+
+### Position Units
+
+All positions are in **centimeters**:
+
+```cpp wire/core/types.hpp
+struct Vec3d {
+  double x = 0.0;  // X position in centimeters
+  double y = 0.0;  // Y position in centimeters  
+  double z = 0.0;  // Z position in centimeters
+};
+```
+
+<Tabs>
+  <Tab title="Typical Values">
+    ```cpp
+    // 10-meter utility pole
+    Vec3d pole_top{0.0, 0.0, 1000.0};  // 1000 cm = 10 m
+    
+    // 30-meter span
+    Vec3d span_end{3000.0, 0.0, 0.0};  // 3000 cm = 30 m
+    
+    // Port offset from pole center
+    Vec3d port_offset{0.0, -50.0, 900.0};  // -50 cm left, 9 m up
+    ```
+  </Tab>
+  
+  <Tab title="Unit Conversion">
+    ```cpp
+    // Meters → Centimeters
+    double meters = 10.5;
+    double cm = meters * 100.0;  // 1050.0 cm
+    
+    // Centimeters → Meters
+    double cm = 3000.0;
+    double meters = cm / 100.0;  // 30.0 m
+    
+    // Feet → Centimeters  
+    double feet = 35.0;  // Typical pole height in feet
+    double cm = feet * 30.48;  // 1066.8 cm
+    ```
+  </Tab>
+  
+  <Tab title="Geographic Scale">
+    ```cpp
+    // Geographic distances (still in centimeters)
+    Vec3d city_block{15000.0, 0.0, 0.0};  // 150 m city block
+    
+    // CAUTION: Very large coordinates lose precision
+    Vec3d problematic{1e10, 1e10, 0.0};  // ~100 km, may lose mm precision
+    
+    // Solution: Use local coordinate system origin near your data
+    Vec3d origin{45.5231, -122.6765, 0.0};  // Portland, OR (lat/lon)
+    // Convert all data to relative offsets from origin
+    ```
+  </Tab>
+</Tabs>
+
+<Info>
+Why centimeters? This matches **Unreal Engine's native unit system**, making integration seamless. It also provides natural precision for infrastructure modeling (±1cm is appropriate for utility poles).
+</Info>
+
+## Double Precision
+
+### Precision Requirements
+
+Wire uses **64-bit floating point (double)** throughout for two reasons:
+
+1. **Geospatial accuracy**: Large coordinate values (kilometers) with millimeter precision
+2. **Numerical stability**: Avoid accumulation errors in long chains of calculations
+
+```cpp
+// Single precision (float) loses mm accuracy at ~10 km
+float large_x = 1000000.0f;  // 10 km
+float offset = large_x + 0.001f;  // Try to add 0.01 mm
+// Result: offset == large_x (precision lost!)
+
+// Double precision maintains mm accuracy at ~10,000 km
+double large_x = 1000000.0;  // 10 km
+double offset = large_x + 0.001;  // Add 0.01 mm
+// Result: offset != large_x (precision preserved)
+```
+
+### Precision Limits
+
+| Distance | Double Precision | Float Precision |
+|----------|------------------|------------------|
+| **1 m** | ±1 nanometer | ±0.1 micrometer |
+| **100 m** | ±10 nanometers | ±10 micrometers |
+| **1 km** | ±0.1 micrometers | ±0.1 millimeters |
+| **10 km** | ±1 micrometer | ±1 millimeter |
+| **100 km** | ±10 micrometers | ±1 centimeter |
+| **1,000 km** | ±0.1 millimeters | ±10 centimeters |
+
+<Note>
+For infrastructure modeling at **city scale** (1-10 km), double precision provides **micrometer accuracy** while float only provides **millimeter accuracy**.
+</Note>
+
+### Integration Considerations
+
+If your rendering engine uses single precision:
+
+```cpp
+// Option 1: Convert to float at render time
+CoreView view = state.view();
+for (const Pole& pole : view.poles().items()) {
+  glm::vec3 render_pos = {
+    static_cast<float>(pole.world_transform.position.x),
+    static_cast<float>(pole.world_transform.position.y),
+    static_cast<float>(pole.world_transform.position.z)
+  };
+  // Render at render_pos
+}
+
+// Option 2: Use camera-relative coordinates  
+Vec3d camera_origin = get_camera_position();
+for (const Pole& pole : view.poles().items()) {
+  Vec3d relative = pole.world_transform.position - camera_origin;
+  glm::vec3 render_pos = {
+    static_cast<float>(relative.x),
+    static_cast<float>(relative.y),
+    static_cast<float>(relative.z)
+  };
+  // Render relative to camera
+}
+```
+
+<Tip>
+**Camera-relative rendering** (Option 2) is the recommended approach for large worlds. It eliminates precision loss by keeping rendered coordinates small relative to the camera.
+</Tip>
+
+## Transform System
+
+### Transform Structure
+
+```cpp wire/core/types.hpp
+struct Transformd {
+  Vec3d position{};                  // World-space position (cm)
+  Vec3d rotation_euler_deg{};        // Euler angles in degrees
+  Vec3d scale{1.0, 1.0, 1.0};       // Scale factors (typically uniform)
+};
+```
+
+### Rotation Convention
+
+Rotations use **Euler angles in degrees** with Unreal Engine's convention:
+
+```cpp
+struct Transformd {
+  Vec3d rotation_euler_deg{pitch, yaw, roll};
+};
+
+// Component meanings:
+pitch: Rotation around Y-axis (green) — "nodding" up/down
+yaw:   Rotation around Z-axis (blue)  — "turning" left/right  
+roll:  Rotation around X-axis (red)   — "tilting" side-to-side
+```
+
+<AccordionGroup>
+  <Accordion title="Pitch — Vertical tilt">
+    **Range**: -90° (looking down) to +90° (looking up)
+    
+    ```cpp
+    Transformd pole{
+      .rotation_euler_deg = {5.0, 0.0, 0.0}  // 5° forward lean
+    };
+    ```
+  </Accordion>
+  
+  <Accordion title="Yaw — Horizontal rotation">
+    **Range**: -180° to +180° (or 0° to 360°)
+    
+    ```cpp
+    Transformd pole{
+      .rotation_euler_deg = {0.0, 45.0, 0.0}  // Facing 45° northeast
+    };
+    ```
+  </Accordion>
+  
+  <Accordion title="Roll — Lateral tilt">
+    **Range**: -180° to +180°
+    
+    ```cpp
+    Transformd pole{
+      .rotation_euler_deg = {0.0, 0.0, -3.0}  // 3° lean to right
+    };
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### Pole Tilt
+
+Wire provides a dedicated API for setting pole tilt:
+
+```cpp
+// Set tilt for a single pole
+auto result = state.SetPoleTilt(pole_id, 
+  2.0,   // tilt_x_deg: 2° pitch (forward/back)
+  -1.5   // tilt_y_deg: -1.5° roll (left/right)
+);
+
+// Set tilt for all poles (e.g., simulate wind)
+auto result = state.SetAllPoleTilt(1.0, 0.0);
+```
+
+<Info>
+Tilt is applied **after** the base yaw rotation, so poles maintain their orientation while leaning.
+</Info>
+
+### Scale
+
+Scale is typically `{1.0, 1.0, 1.0}` (uniform) but can be non-uniform:
+
+```cpp
+Transformd pole{
+  .scale = {1.0, 1.0, 1.2}  // 20% taller, proportional base
+};
+```
+
+<Warning>
+Non-uniform scale may affect **port slot positioning** if the pole type template assumes uniform scale. Use with caution.
+</Warning>
+
+## Local Frames
+
+### Frame3d Structure
+
+Wire uses **Frame3d** for local coordinate frames:
+
+```cpp wire/core/types.hpp
+struct Frame3d {
+  Vec3d origin{};                      // Frame origin
+  Vec3d forward{1.0, 0.0, 0.0};       // X-axis direction (red)
+  Vec3d right{0.0, 1.0, 0.0};         // Y-axis direction (green)
+  Vec3d up{0.0, 0.0, 1.0};            // Z-axis direction (blue)
+};
+```
+
+Frames represent **oriented coordinate systems** used for:
+
+- Port directions (where wires attach)
+- Slot templates (local offsets from pole)
+- Visual geometry generation
+
+### Orthonormal Frames
+
+Frame axes should be **orthonormal** (perpendicular, unit length):
+
+```cpp
+// Valid orthonormal frame
+Frame3d frame{
+  .origin = {0, 0, 0},
+  .forward = {1, 0, 0},  // Unit vector
+  .right = {0, 1, 0},    // Perpendicular to forward
+  .up = {0, 0, 1}        // Perpendicular to both
+};
+
+// Verify orthonormality
+assert(dot(frame.forward, frame.right) == 0.0);    // Perpendicular
+assert(length(frame.forward) == 1.0);              // Unit length
+```
+
+<Note>
+Wire **does not enforce** orthonormality — you're responsible for providing valid frames. Malformed frames will produce unexpected visual results.
+</Note>
+
+### Port Directions
+
+Ports use frames to define attachment orientation:
+
+```cpp wire/core/entities.hpp
+struct Port {
+  // ...
+  Frame3d direction{};  // Attachment orientation
+};
+
+// Example: Port facing left (for crossarm attachment)
+Port left_port{
+  .direction = {
+    .origin = world_position,
+    .forward = {0, -1, 0},  // Facing left
+    .up = {0, 0, 1}          // Up is still vertical
+  }
+};
+```
+
+## Spatial Types
+
+### Axis-Aligned Bounding Box (AABB)
+
+```cpp wire/core/types.hpp
+struct AABBd {
+  Vec3d min{};  // Minimum corner (most negative)
+  Vec3d max{};  // Maximum corner (most positive)
+};
+```
+
+AABBs are used for spatial culling and bounds queries:
+
+```cpp
+// Compute AABB for a span
+const BoundsCacheEntry* bounds = state.find_bounds_cache(span_id);
+if (bounds) {
+  AABBd whole = bounds->whole;
+  double width = whole.max.x - whole.min.x;
+  double height = whole.max.z - whole.min.z;
+  std::cout << "Span extents: " << width << " x " << height << " cm" << std::endl;
+}
+
+// Test point containment
+bool contains(const AABBd& box, const Vec3d& point) {
+  return point.x >= box.min.x && point.x <= box.max.x &&
+         point.y >= box.min.y && point.y <= box.max.y &&
+         point.z >= box.min.z && point.z <= box.max.z;
+}
+```
+
+### AABB Operations
+
+```cpp
+// Expand AABB to include a point
+AABBd expand(const AABBd& box, const Vec3d& point) {
+  return {
+    .min = {std::min(box.min.x, point.x), 
+            std::min(box.min.y, point.y),
+            std::min(box.min.z, point.z)},
+    .max = {std::max(box.max.x, point.x),
+            std::max(box.max.y, point.y),
+            std::max(box.max.z, point.z)}
+  };
+}
+
+// Union of two AABBs
+AABBd union_boxes(const AABBd& a, const AABBd& b) {
+  return {
+    .min = {std::min(a.min.x, b.min.x),
+            std::min(a.min.y, b.min.y),
+            std::min(a.min.z, b.min.z)},
+    .max = {std::max(a.max.x, b.max.x),
+            std::max(a.max.y, b.max.y),
+            std::max(a.max.z, b.max.z)}
+  };
+}
+```
+
+## Geographic Coordinates
+
+### Lat/Lon Conversion
+
+For real-world geographic data, you'll need to convert lat/lon to local coordinates:
+
+```cpp
+// 1. Choose a local origin (e.g., city center)
+struct LatLon { double lat; double lon; double alt; };
+LatLon origin{45.5231, -122.6765, 0.0};  // Portland, OR
+
+// 2. Convert lat/lon to meters offset from origin
+Vec3d latlon_to_local(const LatLon& point, const LatLon& origin) {
+  const double earth_radius = 6371000.0;  // meters
+  const double lat_scale = earth_radius * M_PI / 180.0;
+  const double lon_scale = lat_scale * std::cos(origin.lat * M_PI / 180.0);
+  
+  double dx = (point.lon - origin.lon) * lon_scale;  // meters
+  double dy = (point.lat - origin.lat) * lat_scale;  // meters
+  double dz = point.alt - origin.alt;                // meters
+  
+  // Convert to centimeters (Wire units)
+  return {dx * 100.0, dy * 100.0, dz * 100.0};
+}
+```
+
+<Warning>
+This is a **simple equirectangular projection** suitable for small areas (less than 100 km). For larger regions, use a proper projection library (e.g., PROJ, GeographicLib).
+</Warning>
+
+### Coordinate System Origin
+
+For large geographic datasets:
+
+<Steps>
+  <Step title="Choose Local Origin">
+    Pick a lat/lon near the center of your data (e.g., city center)
+  </Step>
+  <Step title="Convert to Local Offsets">
+    Transform all lat/lon coordinates to offsets from origin (in cm)
+  </Step>
+  <Step title="Build Network">
+    Use local offsets for all Wire positions
+  </Step>
+  <Step title="Render Camera-Relative">
+    For rendering, subtract camera position to keep coordinates small
+  </Step>
+</Steps>
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Use Double Precision" icon="calculator">
+    Always use `double` for positions and distances. Only convert to `float` at render time if needed.
+  </Card>
+  <Card title="Local Coordinates" icon="map-pin">
+    For geographic data, use a local origin to keep coordinates manageable (within 10 km from origin).
+  </Card>
+  <Card title="Camera-Relative Rendering" icon="camera">
+    Subtract camera position before converting to float for rendering to avoid precision loss.
+  </Card>
+  <Card title="Unit Consistency" icon="ruler-combined">
+    Always use centimeters internally. Convert to/from meters at API boundaries.
+  </Card>
+  <Card title="Euler Angle Wrapping" icon="rotate">
+    Be aware of Euler angle discontinuities at ±180°. Consider normalizing angles.
+  </Card>
+  <Card title="Frame Validation" icon="check-double">
+    Validate Frame3d orthonormality if constructing frames manually.
+  </Card>
+</CardGroup>
+
+## Example: Full Transform Workflow
+
+```cpp
+// 1. Create pole with world transform
+Transformd pole_transform{
+  .position = {1500.0, 2000.0, 0.0},      // 15m east, 20m north
+  .rotation_euler_deg = {0.0, 45.0, 0.0}, // Facing northeast  
+  .scale = {1.0, 1.0, 1.0}
+};
+
+auto result = state.AddPole(pole_transform, 1000.0);  // 10m height
+ObjectId pole_id = result.value;
+
+// 2. Add port with local offset
+Vec3d local_offset{0.0, -50.0, 900.0};  // 50 cm left, 9m up
+
+// Transform local offset to world space
+Vec3d world_pos = pole_transform.position + local_offset;
+// NOTE: This assumes no rotation. For rotated poles, apply rotation matrix.
+
+auto port_result = state.AddPort(pole_id, world_pos);
+
+// 3. Query geometry after commit
+state.Commit();
+
+CoreView view = state.view();
+const Port* port = view.ports().find(port_result.value);
+std::cout << "Port position: (" 
+          << port->world_position.x << ", "
+          << port->world_position.y << ", "
+          << port->world_position.z << ") cm" << std::endl;
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Architecture" icon="diagram-project" href="/concepts/architecture">
+    Review the 4-layer architecture
+  </Card>
+  <Card title="Entity Layer" icon="database" href="/concepts/entity-layer">
+    Deep dive into entity types
+  </Card>
+  <Card title="Editing API" icon="code" href="/api/operations/add-entities">
+    Learn to modify the network
+  </Card>
+  <Card title="Viewer Guide" icon="eye" href="/viewer/overview">
+    Visualize your network
+  </Card>
+</CardGroup>

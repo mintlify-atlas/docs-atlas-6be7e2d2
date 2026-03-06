@@ -1,0 +1,106 @@
+---
+title: BoundsCache
+description: Spatial bounds cache for span collision detection and culling
+---
+
+## Overview
+
+The `BoundsCache` stores axis-aligned bounding boxes (AABBs) for each span, computed from curve geometry. Enables fast spatial queries, frustum culling, and raycast early-outs without iterating over curve points.
+
+## BoundsCacheEntry
+
+Represents cached spatial bounds for a single span.
+
+### Fields
+
+<ResponseField name="whole" type="AABBd" required>
+  Axis-aligned bounding box enclosing the entire span curve. Computed by taking the min/max of all points in the corresponding `CurveCacheEntry`.
+</ResponseField>
+
+<ResponseField name="segments" type="std::vector<AABBd>" required>
+  Per-segment bounding boxes for finer spatial queries. Each entry corresponds to a segment between consecutive curve points, enabling hierarchical culling.
+</ResponseField>
+
+<ResponseField name="source_version" type="std::uint64_t" default="0">
+  Version number from `SpanRuntimeState::bounds_version` when this entry was last rebuilt. Used to detect stale cache entries.
+</ResponseField>
+
+## BoundsCache
+
+Container mapping span IDs to their bounds cache entries.
+
+### Fields
+
+<ResponseField name="by_span" type="std::unordered_map<ObjectId, BoundsCacheEntry>" required>
+  Map from span `ObjectId` to its cached bounds data. Only contains entries for spans that have been processed by the bounds recalc pipeline.
+</ResponseField>
+
+## Version-Based Invalidation
+
+Bounds cache entries are invalidated when:
+- Curve cache is invalidated (depends on geometry)
+- Direct geometry changes (endpoints move, settings change)
+
+The system compares `BoundsCacheEntry::source_version` against `SpanRuntimeState::bounds_version`. Bounds are always recomputed after curve geometry updates, ensuring consistency.
+
+## Querying the Cache
+
+Use `CoreState::find_bounds_cache()` to safely query entries:
+
+```cpp
+const BoundsCacheEntry* entry = core_state.find_bounds_cache(span_id);
+if (entry) {
+  // Fast frustum culling
+  if (frustum.intersects(entry->whole)) {
+    // Span is visible, proceed with rendering
+  }
+  
+  // Fine-grained raycast
+  for (const AABBd& segment_aabb : entry->segments) {
+    if (ray.intersects(segment_aabb)) {
+      // Perform detailed intersection test on this segment
+    }
+  }
+}
+```
+
+Returns `nullptr` if:
+- Span doesn't exist
+- Bounds haven't been computed yet
+- Cache was invalidated but not yet rebuilt
+
+## Use Cases
+
+### Frustum Culling
+```cpp
+for (const auto& [span_id, span] : spans) {
+  const BoundsCacheEntry* bounds = core_state.find_bounds_cache(span_id);
+  if (bounds && !camera_frustum.intersects(bounds->whole)) {
+    continue; // Skip invisible span
+  }
+  render_span(span);
+}
+```
+
+### Spatial Queries
+```cpp
+std::vector<ObjectId> find_spans_in_region(const AABBd& query_box) {
+  std::vector<ObjectId> results;
+  for (const auto& [span_id, bounds_entry] : bounds_cache.by_span) {
+    if (query_box.intersects(bounds_entry.whole)) {
+      results.push_back(span_id);
+    }
+  }
+  return results;
+}
+```
+
+## Related Types
+
+- [CurveCache](/api/cache/curve-cache) - Source data for bounds computation
+- [SpanRuntimeState](/api/cache/runtime-state) - Tracks version numbers for invalidation
+- [AABBd](/api/types/geometry-types) - Axis-aligned bounding box type
+
+## Source Reference
+
+Defined in `wire/core/core_state.hpp:48-56`

@@ -1,0 +1,107 @@
+---
+title: "Bundle"
+description: "Entity-layer bundle attribute object defining wire conductor grouping and visual properties."
+---
+
+## Overview
+
+The `Bundle` struct represents a logical grouping of wire conductors that share common properties. Bundles define the visual appearance and physical spacing of multiple conductors that run together along a span.
+
+## Structure Definition
+
+```cpp
+struct Bundle {
+  ObjectId id = kInvalidObjectId;
+  std::string display_id{};
+  int conductor_count = 1;
+  double phase_spacing_m = 0.3;
+  BundleKind kind = BundleKind::kLowVoltage;
+  double visual_sag_ratio = 0.03;
+  double visual_wire_radius_m = 0.015;
+  bool visual_use_reference_length = true;
+};
+```
+
+## Fields
+
+<ResponseField name="id" type="ObjectId" default="kInvalidObjectId">
+  Unique identifier for the bundle entity.
+</ResponseField>
+
+<ResponseField name="display_id" type="std::string">
+  Human-readable identifier displayed in the UI.
+</ResponseField>
+
+<ResponseField name="conductor_count" type="int" default="1">
+  Number of individual conductors in the bundle (e.g., 3 for three-phase power).
+</ResponseField>
+
+<ResponseField name="phase_spacing_m" type="double" default="0.3">
+  Spacing between individual conductors in the bundle, in meters.
+</ResponseField>
+
+<ResponseField name="kind" type="BundleKind" default="kLowVoltage">
+  Classification of the bundle type. See [BundleKind enum](#bundlekind-enum).
+</ResponseField>
+
+<ResponseField name="visual_sag_ratio" type="double" default="0.03">
+  Visual sag ratio for wire catenary (sag as a fraction of span length, e.g., 0.03 = 3% sag).
+</ResponseField>
+
+<ResponseField name="visual_wire_radius_m" type="double" default="0.015">
+  Radius of individual wire conductors for visualization, in meters.
+</ResponseField>
+
+<ResponseField name="visual_use_reference_length" type="bool" default="true">
+  Whether to use the span's reference length to maintain consistent visual tension when poles move or tilt.
+</ResponseField>
+
+## Related Types
+
+### BundleKind Enum
+
+```cpp
+enum class BundleKind : std::uint8_t {
+  kLowVoltage = 0,
+  kHighVoltage = 1,
+  kCommunication = 2,
+  kOptical = 3,
+};
+```
+
+Classifies bundles by their electrical/communication type:
+- **kLowVoltage**: Low voltage power distribution (typically residential)
+- **kHighVoltage**: High voltage power transmission
+- **kCommunication**: Communication/data cables
+- **kOptical**: Optical fiber cables
+
+### ConductorGroupKind Enum
+
+```cpp
+enum class ConductorGroupKind : std::uint8_t {
+  kSingle = 0,
+  kParallel = 1,
+  kThreePhase = 2,
+};
+```
+
+Describes conductor arrangement patterns:
+- **kSingle**: Single conductor
+- **kParallel**: Multiple parallel conductors
+- **kThreePhase**: Three-phase power configuration (common for conductor_count = 3)
+
+## Visual Properties
+
+The bundle struct contains "persisted visual policy" fields that define authoritative settings for wire rendering:
+
+- **visual_sag_ratio**: Controls how much the wires droop between poles. A value of 0.03 means the wire sags by 3% of the horizontal span distance.
+- **visual_wire_radius_m**: Determines the thickness of rendered wire conductors. Typical values range from 0.01m to 0.02m.
+- **visual_use_reference_length**: When enabled, uses the span's stored reference length to compute sag, maintaining consistent visual tension even if poles tilt or move slightly.
+
+## Usage Notes
+
+- Bundles are referenced by [Spans](/api/entities/span) via the `bundle_id` field
+- A single bundle can be shared by multiple spans that carry the same wire type
+- The `conductor_count` and `phase_spacing_m` determine the geometric arrangement of wires
+- Visual properties affect rendering but not electrical simulation
+- Three-phase power bundles typically have `conductor_count = 3` with appropriate spacing

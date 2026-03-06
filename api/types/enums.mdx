@@ -1,0 +1,335 @@
+---
+title: 'Enumerations'
+description: 'All enumeration types used throughout the Wire library'
+---
+
+## Overview
+
+This page documents all enumeration types defined in the Wire library. These enums provide type-safe constants for various entity properties, connection categories, and workflow options.
+
+All enums are defined in `wire/core/entities.hpp` (lines 14-143).
+
+---
+
+## ConnectionCategory
+
+**Type:** `std::uint8_t`  
+**Definition:** `entities.hpp:14-20`
+
+Classifies the electrical or communication category of a connection.
+
+| Value | Description |
+|-------|-------------|
+| `kHighVoltage` (0) | High voltage power distribution lines |
+| `kLowVoltage` (1) | Low voltage power distribution or service drops |
+| `kCommunication` (2) | Telephone, cable, or other communication lines |
+| `kOptical` (3) | Fiber optic communication cables |
+| `kDrop` (4) | Service drop connections to buildings |
+
+---
+
+## ConnectionContext
+
+**Type:** `std::uint8_t`  
+**Definition:** `entities.hpp:22-27`
+
+Describes the role of a connection in the network topology.
+
+| Value | Description |
+|-------|-------------|
+| `kTrunkContinue` (0) | Continuation of a main trunk line |
+| `kCornerPass` (1) | Connection passing through a corner pole |
+| `kBranchAdd` (2) | New branch connection from the main line |
+| `kDropAdd` (3) | Service drop added to a pole |
+
+---
+
+## PathDirectionMode
+
+**Type:** `std::uint8_t`  
+**Definition:** `entities.hpp:29-33`
+
+Controls how path direction is determined during generation.
+
+| Value | Description |
+|-------|-------------|
+| `kAuto` (0) | Automatically determine optimal direction |
+| `kForward` (1) | Force forward direction along the path |
+| `kReverse` (2) | Force reverse direction along the path |
+
+---
+
+## PathDirectionChosen
+
+**Type:** `std::uint8_t`  
+**Definition:** `entities.hpp:35-38`
+
+Indicates the actual direction chosen after resolution.
+
+| Value | Description |
+|-------|-------------|
+| `kForward` (0) | Path follows forward direction |
+| `kReverse` (1) | Path follows reverse direction |
+
+---
+
+## ConductorGroupKind
+
+**Type:** `std::uint8_t`  
+**Definition:** `entities.hpp:40-44`
+
+Defines the configuration of conductors in a bundle.
+
+| Value | Description |
+|-------|-------------|
+| `kSingle` (0) | Single conductor wire |
+| `kParallel` (1) | Multiple parallel conductors |
+| `kThreePhase` (2) | Three-phase power configuration |
+
+---
+
+## PoleContextKind
+
+**Type:** `std::uint8_t`  
+**Definition:** `entities.hpp:46-51`
+
+Classifies the topological role of a pole in the network.
+
+| Value | Description |
+|-------|-------------|
+| `kStraight` (0) | Pole on a straight run with no direction change |
+| `kCorner` (1) | Pole at a corner where lines change direction |
+| `kBranch` (2) | Junction pole where lines split or merge |
+| `kTerminal` (3) | End pole with only one connection |
+
+---
+
+## SlotSide
+
+**Type:** `std::uint8_t`  
+**Definition:** `entities.hpp:53-57`
+
+Indicates the lateral position of a port slot on a pole.
+
+| Value | Description |
+|-------|-------------|
+| `kLeft` (0) | Left side of the pole (when facing forward) |
+| `kCenter` (1) | Center/neutral position |
+| `kRight` (2) | Right side of the pole |
+
+---
+
+## SlotRole
+
+**Type:** `std::uint8_t`  
+**Definition:** `entities.hpp:59-64`
+
+Defines the preferred usage role for a port slot during auto-placement.
+
+| Value | Description |
+|-------|-------------|
+| `kNeutral` (0) | No specific role preference |
+| `kTrunkPreferred` (1) | Preferred for trunk line continuations |
+| `kBranchPreferred` (2) | Preferred for branch connections |
+| `kDropPreferred` (3) | Preferred for service drops |
+
+---
+
+## PortKind
+
+**Type:** `std::uint8_t`  
+**Definition:** `entities.hpp:66-70`
+
+Classifies the general type of port.
+
+| Value | Description |
+|-------|-------------|
+| `kGeneric` (0) | Generic port with no specific classification |
+| `kPower` (1) | Electrical power port |
+| `kCommunication` (2) | Communication/data port |
+
+---
+
+## PortLayer
+
+**Type:** `std::uint8_t`  
+**Definition:** `entities.hpp:72-78`
+
+Specifies the electrical/communication layer of a port.
+
+| Value | Description |
+|-------|-------------|
+| `kUnknown` (0) | Layer not specified or unknown |
+| `kHighVoltage` (1) | High voltage power layer |
+| `kLowVoltage` (2) | Low voltage power layer |
+| `kCommunication` (3) | Communication cable layer |
+| `kOptical` (4) | Fiber optic cable layer |
+
+---
+
+## PlacementMode
+
+**Type:** `std::uint8_t`  
+**Definition:** `entities.hpp:80-83`
+
+Controls whether entity placement is automatic or manual.
+
+| Value | Description |
+|-------|-------------|
+| `kAuto` (0) | Automatic placement by the system |
+| `kManual` (1) | Manual placement by the user |
+
+---
+
+## PortPositionMode
+
+**Type:** `std::uint8_t`  
+**Definition:** `entities.hpp:85-88`
+
+Controls whether port position is computed automatically or set manually.
+
+| Value | Description |
+|-------|-------------|
+| `kAuto` (0) | Automatic position calculation |
+| `kManual` (1) | Manual position override |
+
+---
+
+## PortPlacementSourceKind
+
+**Type:** `std::uint8_t`  
+**Definition:** `entities.hpp:90-96`
+
+Indicates the origin of a port's placement.
+
+| Value | Description |
+|-------|-------------|
+| `kUnknown` (0) | Source not determined |
+| `kTemplateSlot` (1) | Generated from a pole type template slot |
+| `kGenerated` (2) | Generated by automated rules |
+| `kManualEdit` (3) | Created or moved by manual user edit |
+| `kAerialBranch` (4) | Generated for an aerial branch connection |
+
+---
+
+## SpanKind
+
+**Type:** `std::uint8_t`  
+**Definition:** `entities.hpp:98-102`
+
+Classifies the general type of span connection.
+
+| Value | Description |
+|-------|-------------|
+| `kGeneric` (0) | Generic span with no specific classification |
+| `kDistribution` (1) | Main distribution line |
+| `kService` (2) | Service drop to customer |
+
+---
+
+## SpanLayer
+
+**Type:** `std::uint8_t`  
+**Definition:** `entities.hpp:104-110`
+
+Specifies the electrical/communication layer of a span.
+
+| Value | Description |
+|-------|-------------|
+| `kUnknown` (0) | Layer not specified or unknown |
+| `kHighVoltage` (1) | High voltage power span |
+| `kLowVoltage` (2) | Low voltage power span |
+| `kCommunication` (3) | Communication cable span |
+| `kOptical` (4) | Fiber optic cable span |
+
+---
+
+## PoleKind
+
+**Type:** `std::uint8_t`  
+**Definition:** `entities.hpp:112-117`
+
+Classifies the material/construction type of a utility pole.
+
+| Value | Description |
+|-------|-------------|
+| `kGeneric` (0) | Generic pole with unspecified material |
+| `kWood` (1) | Wooden utility pole |
+| `kConcrete` (2) | Concrete utility pole |
+| `kSteel` (3) | Steel utility pole or tower |
+
+---
+
+## AnchorSupportKind
+
+**Type:** `std::uint8_t`  
+**Definition:** `entities.hpp:119-124`
+
+Classifies the type of anchor support point.
+
+| Value | Description |
+|-------|-------------|
+| `kGeneric` (0) | Generic anchor with unspecified type |
+| `kGround` (1) | Ground-based anchor (e.g., guy wire anchor) |
+| `kBuilding` (2) | Building-mounted anchor point |
+| `kMidair` (3) | Mid-span anchor (e.g., between poles) |
+
+---
+
+## BundleKind
+
+**Type:** `std::uint8_t`  
+**Definition:** `entities.hpp:126-131`
+
+Classifies the type of cable bundle.
+
+| Value | Description |
+|-------|-------------|
+| `kLowVoltage` (0) | Low voltage power bundle |
+| `kHighVoltage` (1) | High voltage power bundle |
+| `kCommunication` (2) | Communication cable bundle |
+| `kOptical` (3) | Fiber optic cable bundle |
+
+---
+
+## AttachmentKind
+
+**Type:** `std::uint8_t`  
+**Definition:** `entities.hpp:133-138`
+
+Classifies the type of span attachment hardware.
+
+| Value | Description |
+|-------|-------------|
+| `kGeneric` (0) | Generic attachment with unspecified type |
+| `kDamper` (1) | Vibration damper or dampener |
+| `kSpacer` (2) | Conductor spacer (for bundled conductors) |
+| `kMarker` (3) | Visual marker or warning device |
+
+---
+
+## GenerationSource
+
+**Type:** `std::uint8_t`  
+**Definition:** `entities.hpp:140-143`
+
+Indicates how an entity was created.
+
+| Value | Description |
+|-------|-------------|
+| `kManual` (0) | Created manually by the user |
+| `kRoadAuto` (1) | Auto-generated from a road/path |
+
+---
+
+## BundleCountRuleKind
+
+**Type:** `std::uint8_t`  
+**Definition:** `workflow_types.hpp:39-42`
+
+Defines how conductor count is determined in a bundle template.
+
+| Value | Description |
+|-------|-------------|
+| `kFixed` (0) | Fixed conductor count (not user-configurable) |
+| `kRange` (1) | Variable count within a min/max range |

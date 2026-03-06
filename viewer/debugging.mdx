@@ -1,0 +1,453 @@
+---
+title: Debugging Features
+description: Debug overlays, dirty visualization, and diagnostic tools in the Wire viewer
+---
+
+## Debug Value Display
+
+The viewer provides extensive debugging information to verify core behavior and diagnose issues.
+
+### Entity Selection Info
+
+When an entity is selected, the **Inspector** panel shows all relevant debug values:
+
+#### Pole Debug Values
+
+```
+ID: PL-000001
+Name: Pole
+PoleTypeId: 1
+Generated: true
+Gen Source: 1 (BackboneSpec)
+Gen Session: 123456789
+Pos: 10.00 5.00 0.00
+Height: 9.00
+PoleContext: Corner
+cornerAngle: 45.23
+cornerTurnSign: 1
+sideScale: 1.350
+angleCorrectionApplied: true
+sharpOrientationApplied: true
+sharpTheta: 42.50
+sharpBisector: 0.707 0.707 0.000
+sharpSideDir: -0.707 0.707 0.000
+flip180: false
+manualYawOverride: false
+placementOverride: false
+orientationOverride: false
+```
+
+**Corner Geometry Debug**: The viewer displays acute angle correction parameters:
+
+- `cornerAngle`: Interior angle at this pole (degrees)
+- `cornerTurnSign`: Direction of turn (-1 or +1)
+- `sideScale`: Port row spacing scale factor (1.0 - 1.8)
+- `sharpTheta`: Exterior angle for bisector calculation
+- `sharpBisector`: Unit vector of angle bisector
+- `sharpSideDir`: Port row side axis (perpendicular to bisector)
+
+<Info>
+Acute corners (interior angle < 75°) trigger special port layout corrections. The `sharpSideDir` overrides the normal pole-to-pole side axis.
+</Info>
+
+#### Port Debug Values
+
+```
+ID: PT-000042
+Owner Pole: 123456
+Pos: 10.50 5.20 7.00
+Category: LowVoltage
+SlotId: 3
+Layer: 0 Side: L Role: Trunk
+PositionMode: Manual
+PlacementSource: TemplateSlot
+UserEditedPos: true
+GeneratedByRule: false
+PlacementContext: TrunkContinue
+AngleCorrected: true sideScale=1.350
+placementOverride: false
+orientationOverride: false
+```
+
+**Position Mode**: Distinguishes Auto (orange sphere) from Manual (magenta sphere) ports.
+
+**Placement Source**: Shows origin:
+- `TemplateSlot`: Created from pole type template slot
+- `Generated`: Created by generation rule
+- `ManualEdit`: User-created or user-moved
+- `AerialBranch`: Created by branch/drop operation
+
+#### Span Debug Values
+
+```
+ID: SP-000100
+portA: 123
+portB: 124
+bundle: 500
+Generated: true
+Gen Session: 123456789
+GeneratedByRule: true
+PlacementContext: TrunkContinue
+placementOverride: false
+orientationOverride: false
+curveSamples: 16
+curveLength: 25.34
+AABB size: 25.50 0.80 2.10
+segmentAABBs: 8
+--- Runtime State ---
+dataVersion: 42
+geometryVersion: 42
+boundsVersion: 42
+renderVersion: 42
+dirtyBits: None
+```
+
+**Version Numbers**: Each span tracks version numbers for different processing stages:
+
+- `dataVersion`: Topology changes (port connections)
+- `geometryVersion`: Curve geometry recalculation
+- `boundsVersion`: AABB recalculation
+- `renderVersion`: Visual representation updates
+
+When dirty, the version lags behind the latest global version.
+
+## Dirty Bit Visualization
+
+### Span Color Coding
+
+Spans are colored by their dirty state:
+
+| Color | Dirty Bit | Meaning |
+|-------|-----------|----------|
+| **Purple** | Topology | Port connections changed, need topology rebuild |
+| **Yellow** | Geometry | Port positions moved, need curve recalculation |
+| **Blue** | Bounds | Geometry changed, need AABB recalculation |
+| **Red** | Render | Visual state changed, need render cache update |
+| **Green** | Raycast | Need raycast structure rebuild |
+| **Sky Blue** | Clean | All processing complete |
+| **Gold** | Selected | Currently selected span |
+
+<Tip>
+After editing, watch spans change color as dirty propagation occurs. After recalc, they return to sky blue.
+</Tip>
+
+### Dirty Queue Display
+
+The **Diagnostics** panel (or unified workspace) shows live dirty queue counts:
+
+```
+Dirty T/G/B/R/X: 0 / 5 / 5 / 5 / 0
+```
+
+- **T**: Topology dirty spans
+- **G**: Geometry dirty spans
+- **B**: Bounds dirty spans
+- **R**: Render dirty spans
+- **X**: Raycast dirty spans
+
+**Last Recalc**: Shows processing results from last recalc run:
+
+```
+Last Recalc total=10 geom=5 bounds=5 render=5
+```
+
+### Auto Recalc Mode
+
+Enable **Auto Recalc** checkbox to automatically process dirty spans after each edit. Disable to manually control recalc timing.
+
+Click **Run Recalc** button to manually trigger dirty processing.
+
+## AABB Debug Overlays
+
+The viewer can display axis-aligned bounding boxes for spans:
+
+### Enable AABB Display
+
+In **Detail** mode (or via checkbox in Diagnostics):
+
+- **Show Whole AABB**: Dark green box around entire span curve
+- **Show Segment AABB**: Steel blue boxes for each curve segment
+
+<CodeGroup>
+
+```text Whole AABB (Span-level)
+Bounding box: min=(0,0,5) max=(25,1,8)
+Covers entire catenary curve
+```
+
+```text Segment AABBs (Per-sample)
+Segment 0: min=(0.0,0.0,6.5) max=(3.2,0.1,7.0)
+Segment 1: min=(3.2,0.0,6.0) max=(6.4,0.1,6.6)
+...
+```
+
+</CodeGroup>
+
+AABBs are used for spatial queries and culling (future feature).
+
+## Generation Session Tracking
+
+### Generation Session ID
+
+Each generation operation assigns a unique session ID to all created entities:
+
+```
+Gen Session: 123456789012345
+```
+
+All poles and spans from the same DrawPath or GenerateSimpleLine operation share this ID.
+
+### Regeneration Workflow
+
+When **Regenerate Last Session** is enabled:
+
+1. User draws a new path or modifies settings
+2. Presses **Enter** or **Generate**
+3. Viewer calls `RegenerateSessionAutoParts(session_id, new_spec)`
+4. Core library:
+   - Preserves all Manual poles and Manual ports
+   - Deletes Auto poles/ports/spans from that session
+   - Regenerates new Auto elements with updated spec
+   - Preserves the same session ID
+
+This allows iterative refinement:
+
+<Steps>
+  <Step title="Initial Generation">
+    Draw path, generate network, session ID = 100
+  </Step>
+  
+  <Step title="Pin Important Poles">
+    Select corner poles, set to Manual
+  </Step>
+  
+  <Step title="Modify and Regenerate">
+    Change bundle templates or interval, press Enter
+  </Step>
+  
+  <Step title="Result">
+    Manual poles preserved, Auto poles updated, session ID still = 100
+  </Step>
+</Steps>
+
+<Warning>
+If you clear the path (Esc) or start a new path, the session ID resets. Regeneration only works within the same session.
+</Warning>
+
+## Path Direction Debug
+
+The viewer displays path direction analysis results:
+
+```
+Direction chosen: Forward (mode=Auto)
+Cost F/R: 50 / 120
+Cost detail cross=10 side=5 layer=15 corner=10 branch=10
+```
+
+**Direction Mode**:
+- **Auto**: Algorithm chooses lowest cost direction
+- **Forward**: Force use path as drawn
+- **Reverse**: Force reverse path direction
+
+**Cost Breakdown** (for Forward direction):
+- `cross`: Estimated wire crossing penalty
+- `side`: Side flip penalty (L/R template slot mismatches)
+- `layer`: Layer jump penalty (vertical slot mismatches)
+- `corner`: Corner compression penalty (tight angles)
+- `branch`: Branch conflict penalty (role mismatches)
+
+Lower total cost = better direction. Auto mode picks the direction with minimum total cost.
+
+## Lane Assignment Inspection
+
+The DrawPath panel shows detailed lane assignment results:
+
+```
+Lane assignments: 12
+seg=0 A=1001 B=1002 lanes=3 mirrored=false
+seg=1 A=1002 B=1003 lanes=3 mirrored=false
+...
+```
+
+**Lane Assignment**: For each segment (pole pair) in a bundle:
+- Segment index in the path
+- Pole A and Pole B IDs
+- Number of lanes (wires) in this bundle
+- Mirrored flag (template was flipped L↔R)
+
+### Bundle Crossing Analysis
+
+The viewer detects wire crossings in XY projection:
+
+```
+bundle=500 lanes=3 cross(seg/adj/global)=0/0/0 ✓
+bundle=501 lanes=2 cross(seg/adj/global)=0/1/1 ✗
+```
+
+- **seg**: Crossings within a single segment
+- **adj**: Crossings between adjacent segments
+- **global**: Total crossings across all segments
+
+<Info>
+Green text = no crossings (OK). Red text = crossings detected (investigate).
+</Info>
+
+Crossings indicate port selection or mirroring issues. Check slot assignments and direction mode.
+
+## Slot Selection Debug Records
+
+Enable **Capture Slot Debug** to record slot selection events:
+
+```
+slot_debug[0].pole_id=1001
+slot_debug[0].peer_pole_id=1002
+slot_debug[0].category=LowVoltage
+slot_debug[0].context=TrunkContinue
+slot_debug[0].selected_slot_id=3
+slot_debug[0].result=success
+```
+
+Each record shows:
+- Which pole and peer pole
+- Connection category and context
+- Which template slot was chosen
+- Success or failure result
+
+Use **Capture Slot Debug Tail** to limit records (e.g., last 64 events) to keep captures manageable.
+
+## Geometry and Layout Settings
+
+The **Diagnostics** panel exposes core settings for experimentation:
+
+### Geometry Settings
+
+```
+Curve Samples: [2..64] (default: 16)
+Sag Enabled: ✓
+Sag Factor: 0.0300
+Pole Clearance: 0.0500
+```
+
+- **Curve Samples**: Number of points per catenary curve (more = smoother, slower)
+- **Sag Enabled**: Apply catenary sag to wires
+- **Sag Factor**: Sag depth as ratio of span length (0.03 = 3%)
+- **Pole Clearance**: Wire endpoint offset from pole center (meters)
+
+Click **Apply Geometry** to update settings and trigger recalc.
+
+### Layout Settings
+
+```
+Angle Correction Enabled: ✓
+Corner Threshold Deg: 12.00
+Min Side Scale: 1.000
+Max Side Scale: 1.800
+```
+
+- **Angle Correction Enabled**: Enable acute angle port layout correction
+- **Corner Threshold Deg**: Deviation from 180° to trigger correction
+- **Min/Max Side Scale**: Allowed range for port row spacing multiplier
+
+Click **Apply Layout** to update settings. Regenerate paths to see effect.
+
+<Tip>
+To test corner handling, create a sharp 90° corner path and toggle Angle Correction Enabled ON/OFF. Observe port positions change.
+</Tip>
+
+## Visual Part Inspection
+
+The viewer renders visual support structures:
+
+- **Support Arms**: Brown lines from pole to port positions
+- **Insulators**: Sky blue cylinders at port connections
+
+Toggle visibility in **Diagnostics**:
+
+```
+Enable Support Structures: ✓
+Enable Insulators: ✓
+Support Center Threshold: 0.03
+Support Arm Extra: 0.20
+Insulator Radius: 0.07
+Insulator Length: 0.16
+```
+
+Visual parts are decorative (not part of core model) but help verify port positions.
+
+## Debug Labels
+
+Enable **Debug Labels** checkbox in Detail mode to show entity IDs above objects (future feature, currently in Inspector only).
+
+## Bundle Highlight
+
+When a span is selected, enable **Show Selected Bundle Highlight** to highlight all spans in the same bundle (orange color).
+
+Useful for tracing multi-span bundles and verifying bundle assignment.
+
+## Performance Monitoring
+
+The topbar shows real-time entity counts:
+
+```
+Poles:45  Ports:180  Spans:120  Bundles:8
+```
+
+Watch counts update as you generate and edit networks.
+
+## Error Display
+
+Errors appear in:
+
+1. **Last Error** field (red text if present)
+2. **Logs** (bottom of workspace, recent 12 messages)
+3. **Console output** (if running from terminal)
+
+Common errors:
+
+- "path needs at least 2 points" → Draw more path points
+- "select at least one bundle template" → Enable a template checkbox
+- "no pole type available" → Core initialization failed, check CMake config
+- "port not found" → Invalid port ID in edit operation
+
+## Diagnostic Workflow Example
+
+<Steps>
+  <Step title="Generate Test Network">
+    DrawPath mode → draw L-shaped path → select LowVoltage template → Generate
+  </Step>
+  
+  <Step title="Observe Dirty Propagation">
+    Watch spans turn yellow (geometry dirty) → Enable Auto Recalc → Watch return to sky blue
+  </Step>
+  
+  <Step title="Inspect Corner Pole">
+    Select corner pole → Check `cornerAngle` and `sideScale` in Inspector
+  </Step>
+  
+  <Step title="Move Corner Pole">
+    Load position → Modify Z value → Move Pole → Watch connected spans turn yellow
+  </Step>
+  
+  <Step title="Check Recalc Cost">
+    Diagnostics panel → Last Recalc shows spans processed
+  </Step>
+  
+  <Step title="Pin Corner Pole">
+    Detail mode → Set Placement Mode to Manual → Regenerate path → Pole position preserved
+  </Step>
+  
+  <Step title="Save Repro Capture">
+    DrawPath mode → Save Repro Capture → Check captures/ folder → Attach to bug report
+  </Step>
+</Steps>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Core Concepts" icon="book" href="/concepts/dirty-tracking">
+    Understand the dirty/version system visualized in the viewer
+  </Card>
+  <Card title="Generation API" icon="wand-magic-sparkles" href="/api/operations/generation">
+    Learn the BackboneSpec API used by DrawPath
+  </Card>
+</CardGroup>

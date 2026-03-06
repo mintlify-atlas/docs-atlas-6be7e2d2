@@ -1,0 +1,103 @@
+---
+title: "Anchor"
+description: "Entity-layer support point for mechanical stabilization of wire spans."
+---
+
+## Overview
+
+The `Anchor` struct represents a physical support point that provides mechanical stabilization for wire spans. Anchors can be ground-based, building-mounted, or midair supports that help manage tension and sag in the wire network.
+
+## Structure Definition
+
+```cpp
+struct Anchor {
+  ObjectId id = kInvalidObjectId;
+  std::string display_id{};
+  ObjectId owner_pole_id = kInvalidObjectId;
+  Vec3d world_position{};
+  AnchorSupportKind support_kind = AnchorSupportKind::kGeneric;
+  double support_strength = 1.0;
+  int source_slot_id = -1;
+  bool generated_from_template = false;
+};
+```
+
+## Fields
+
+<ResponseField name="id" type="ObjectId" default="kInvalidObjectId">
+  Unique identifier for the anchor entity.
+</ResponseField>
+
+<ResponseField name="display_id" type="std::string">
+  Human-readable identifier displayed in the UI.
+</ResponseField>
+
+<ResponseField name="owner_pole_id" type="ObjectId" default="kInvalidObjectId">
+  Reference to the parent pole that owns this anchor.
+</ResponseField>
+
+<ResponseField name="world_position" type="Vec3d">
+  3D position of the anchor in world coordinates.
+</ResponseField>
+
+<ResponseField name="support_kind" type="AnchorSupportKind" default="kGeneric">
+  Type of support provided by this anchor. See [AnchorSupportKind enum](#anchorsupportkind-enum).
+</ResponseField>
+
+<ResponseField name="support_strength" type="double" default="1.0">
+  Relative strength/capacity of the anchor support (1.0 = normal strength).
+</ResponseField>
+
+<ResponseField name="source_slot_id" type="int" default="-1">
+  ID of the anchor slot template that generated this anchor, or -1 if not from a template.
+</ResponseField>
+
+<ResponseField name="generated_from_template" type="bool" default="false">
+  True if this anchor was created from a pole type anchor slot template.
+</ResponseField>
+
+## Related Types
+
+### AnchorSupportKind Enum
+
+```cpp
+enum class AnchorSupportKind : std::uint8_t {
+  kGeneric = 0,
+  kGround = 1,
+  kBuilding = 2,
+  kMidair = 3,
+};
+```
+
+Classifies anchors by their support type:
+- **kGeneric**: Default/unspecified anchor type
+- **kGround**: Ground-based anchor (e.g., guy wire to ground anchor)
+- **kBuilding**: Building-mounted support
+- **kMidair**: Midair support point (e.g., between poles)
+
+### AnchorSlotTemplate Struct
+
+```cpp
+struct AnchorSlotTemplate {
+  int slot_id = 0;
+  AnchorSupportKind usage = AnchorSupportKind::kGeneric;
+  Vec3d local_position{};
+  int priority = 0;
+  bool enabled = true;
+};
+```
+
+Template definition for anchor slots in pole types:
+- **slot_id**: Unique identifier for the slot
+- **usage**: Intended support type
+- **local_position**: Position relative to pole origin
+- **priority**: Selection priority for automatic placement
+- **enabled**: Whether the slot is currently active
+
+## Usage Notes
+
+- Anchors provide mechanical support for [Spans](/api/entities/span)
+- Each anchor belongs to exactly one [Pole](/api/entities/pole)
+- Anchors are typically used at corner poles or where additional support is needed
+- The `source_slot_id` links back to the originating anchor slot template in the pole type definition
+- A span can reference anchors via `anchor_a_id` and `anchor_b_id` fields for enhanced stability modeling

@@ -1,0 +1,571 @@
+---
+title: 'CoreView'
+description: 'Read-only accessor for CoreState'
+---
+
+## Overview
+
+`CoreView` provides read-only access to a `CoreState` instance. It exposes all entity stores, indexes, settings, and caches without allowing mutations. This is useful for querying state, rendering, serialization, and debugging.
+
+**Location:** `wire/core/core_state.hpp:537-591`
+
+**Namespace:** `wire::core`
+
+## Constructor
+
+```cpp
+explicit CoreView(const CoreState& state)
+```
+
+Creates a view referencing the given CoreState.
+
+<ParamField path="state" type="const CoreState&" required>
+  The CoreState to create a view of
+</ParamField>
+
+## Entity Store Accessors
+
+### edit_state
+
+```cpp
+const EditState& edit_state() const
+```
+
+Returns the entire edit state structure containing all entity stores.
+
+<ResponseField name="const EditState&" type="const EditState&">
+  Reference to the edit state
+</ResponseField>
+
+---
+
+### poles
+
+```cpp
+const ObjectStore<Pole>& poles() const
+```
+
+Returns the pole object store.
+
+<ResponseField name="const ObjectStore<Pole>&" type="const ObjectStore<Pole>&">
+  Reference to the poles store
+</ResponseField>
+
+---
+
+### ports
+
+```cpp
+const ObjectStore<Port>& ports() const
+```
+
+Returns the port object store.
+
+<ResponseField name="const ObjectStore<Port>&" type="const ObjectStore<Port>&">
+  Reference to the ports store
+</ResponseField>
+
+---
+
+### anchors
+
+```cpp
+const ObjectStore<Anchor>& anchors() const
+```
+
+Returns the anchor object store.
+
+<ResponseField name="const ObjectStore<Anchor>&" type="const ObjectStore<Anchor>&">
+  Reference to the anchors store
+</ResponseField>
+
+---
+
+### bundles
+
+```cpp
+const ObjectStore<Bundle>& bundles() const
+```
+
+Returns the bundle object store.
+
+<ResponseField name="const ObjectStore<Bundle>&" type="const ObjectStore<Bundle>&">
+  Reference to the bundles store
+</ResponseField>
+
+---
+
+### spans
+
+```cpp
+const ObjectStore<Span>& spans() const
+```
+
+Returns the span object store.
+
+<ResponseField name="const ObjectStore<Span>&" type="const ObjectStore<Span>&">
+  Reference to the spans store
+</ResponseField>
+
+---
+
+### attachments
+
+```cpp
+const ObjectStore<Attachment>& attachments() const
+```
+
+Returns the attachment object store.
+
+<ResponseField name="const ObjectStore<Attachment>&" type="const ObjectStore<Attachment>&">
+  Reference to the attachments store
+</ResponseField>
+
+---
+
+## Index Accessors
+
+### connection_index
+
+```cpp
+const ConnectionIndex& connection_index() const
+```
+
+Returns the connection index mapping ports/anchors to spans.
+
+<ResponseField name="const ConnectionIndex&" type="const ConnectionIndex&">
+  Reference to the connection index
+</ResponseField>
+
+**ConnectionIndex structure:**
+
+```cpp
+struct ConnectionIndex {
+  std::unordered_map<ObjectId, std::vector<ObjectId>> spans_by_port;
+  std::unordered_map<ObjectId, std::vector<ObjectId>> spans_by_anchor;
+};
+```
+
+---
+
+### relation_index
+
+```cpp
+const RelationIndex& relation_index() const
+```
+
+Returns the relation index mapping poles to owned ports/anchors and bundles to spans.
+
+<ResponseField name="const RelationIndex&" type="const RelationIndex&">
+  Reference to the relation index
+</ResponseField>
+
+**RelationIndex structure:**
+
+```cpp
+struct RelationIndex {
+  std::unordered_map<ObjectId, std::vector<ObjectId>> ports_by_pole;
+  std::unordered_map<ObjectId, std::vector<ObjectId>> anchors_by_pole;
+  std::unordered_map<ObjectId, std::vector<ObjectId>> spans_by_bundle;
+};
+```
+
+---
+
+## Dirty Queue and Recalc
+
+### dirty_queue
+
+```cpp
+const DirtyQueue& dirty_queue() const
+```
+
+Returns the dirty queue containing spans pending recalculation.
+
+<ResponseField name="const DirtyQueue&" type="const DirtyQueue&">
+  Reference to the dirty queue
+</ResponseField>
+
+**DirtyQueue structure:**
+
+```cpp
+struct DirtyQueue {
+  std::vector<ObjectId> topology_dirty_span_ids;
+  std::vector<ObjectId> geometry_dirty_span_ids;
+  std::vector<ObjectId> bounds_dirty_span_ids;
+  std::vector<ObjectId> render_dirty_span_ids;
+  std::vector<ObjectId> raycast_dirty_span_ids;
+};
+```
+
+---
+
+### last_recalc_stats
+
+```cpp
+const RecalcStats& last_recalc_stats() const
+```
+
+Returns statistics from the last recalculation pass.
+
+<ResponseField name="const RecalcStats&" type="const RecalcStats&">
+  Reference to recalc statistics
+</ResponseField>
+
+**RecalcStats structure:**
+
+```cpp
+struct RecalcStats {
+  std::size_t topology_processed = 0;
+  std::size_t geometry_processed = 0;
+  std::size_t bounds_processed = 0;
+  std::size_t render_processed = 0;
+  std::size_t raycast_processed = 0;
+  
+  std::size_t total_processed() const;
+};
+```
+
+---
+
+## Settings Accessors
+
+### geometry_settings
+
+```cpp
+const GeometrySettings& geometry_settings() const
+```
+
+Returns geometry generation settings.
+
+<ResponseField name="const GeometrySettings&" type="const GeometrySettings&">
+  Reference to geometry settings
+</ResponseField>
+
+**GeometrySettings structure:**
+
+```cpp
+struct GeometrySettings {
+  int curve_samples = 8;
+  bool sag_enabled = false;
+  double sag_factor = 0.03;
+  double pole_clearance_m = 0.05;
+};
+```
+
+---
+
+### visual_settings
+
+```cpp
+const VisualSettings& visual_settings() const
+```
+
+Returns visual rendering settings.
+
+<ResponseField name="const VisualSettings&" type="const VisualSettings&">
+  Reference to visual settings
+</ResponseField>
+
+**VisualSettings structure:**
+
+```cpp
+struct VisualSettings {
+  bool enable_support_structures = true;
+  bool enable_insulators = true;
+  double support_center_threshold_m = 0.03;
+  double support_arm_extra_m = 0.20;
+  double insulator_radius_m = 0.07;
+  double insulator_length_m = 0.16;
+};
+```
+
+---
+
+### layout_settings
+
+```cpp
+const LayoutSettings& layout_settings() const
+```
+
+Returns automatic layout settings.
+
+<ResponseField name="const LayoutSettings&" type="const LayoutSettings&">
+  Reference to layout settings
+</ResponseField>
+
+**LayoutSettings structure:**
+
+```cpp
+struct LayoutSettings {
+  bool angle_correction_enabled = true;
+  double corner_threshold_deg = 12.0;
+  double min_side_scale = 1.0;
+  double max_side_scale = 1.8;
+};
+```
+
+---
+
+### path_direction_cost_weights
+
+```cpp
+const PathDirectionCostWeights& path_direction_cost_weights() const
+```
+
+Returns path direction cost weights for generation heuristics.
+
+<ResponseField name="const PathDirectionCostWeights&" type="const PathDirectionCostWeights&">
+  Reference to path direction cost weights
+</ResponseField>
+
+---
+
+## Cache Accessors
+
+### cache_state
+
+```cpp
+const CacheState& cache_state() const
+```
+
+Returns the entire cache state structure.
+
+<ResponseField name="const CacheState&" type="const CacheState&">
+  Reference to cache state
+</ResponseField>
+
+**CacheState structure:**
+
+```cpp
+struct CacheState {
+  GeometrySettings geometry_settings{};
+  CurveCache curve_cache{};
+  BoundsCache bounds_cache{};
+  VisualSettings visual_settings{};
+  VisualCache visual_cache{};
+};
+```
+
+---
+
+## Template Accessors
+
+### pole_types
+
+```cpp
+const std::unordered_map<PoleTypeId, PoleTypeDefinition>& pole_types() const
+```
+
+Returns the registered pole type templates.
+
+<ResponseField name="const std::unordered_map<PoleTypeId, PoleTypeDefinition>&" type="const std::unordered_map<PoleTypeId, PoleTypeDefinition>&">
+  Map of pole type IDs to definitions
+</ResponseField>
+
+---
+
+### bundle_templates
+
+```cpp
+const std::unordered_map<BundleKind, BundleTemplate>& bundle_templates() const
+```
+
+Returns the registered bundle templates.
+
+<ResponseField name="const std::unordered_map<BundleKind, BundleTemplate>&" type="const std::unordered_map<BundleKind, BundleTemplate>&">
+  Map of bundle kinds to templates
+</ResponseField>
+
+---
+
+## Debug Accessors
+
+### last_path_direction_debug
+
+```cpp
+const PathDirectionEvaluationDebug& last_path_direction_debug() const
+```
+
+Returns the last path direction evaluation debug info.
+
+<ResponseField name="const PathDirectionEvaluationDebug&" type="const PathDirectionEvaluationDebug&">
+  Reference to debug information
+</ResponseField>
+
+---
+
+### path_direction_debug_records
+
+```cpp
+const std::vector<PathDirectionEvaluationDebug>& path_direction_debug_records() const
+```
+
+Returns all path direction evaluation debug records.
+
+<ResponseField name="const std::vector<PathDirectionEvaluationDebug>&" type="const std::vector<PathDirectionEvaluationDebug>&">
+  Vector of debug records
+</ResponseField>
+
+---
+
+### last_lane_assignments
+
+```cpp
+const std::vector<SegmentLaneAssignment>& last_lane_assignments() const
+```
+
+Returns the last lane assignments from generation.
+
+<ResponseField name="const std::vector<SegmentLaneAssignment>&" type="const std::vector<SegmentLaneAssignment>&">
+  Vector of lane assignments
+</ResponseField>
+
+---
+
+### slot_selection_debug_records
+
+```cpp
+const std::vector<SlotSelectionDebugRecord>& slot_selection_debug_records() const
+```
+
+Returns slot selection debug records.
+
+<ResponseField name="const std::vector<SlotSelectionDebugRecord>&" type="const std::vector<SlotSelectionDebugRecord>&">
+  Vector of slot selection debug records
+</ResponseField>
+
+---
+
+## Runtime State Accessors
+
+### span_runtime_states
+
+```cpp
+const std::unordered_map<ObjectId, SpanRuntimeState>& span_runtime_states() const
+```
+
+Returns the runtime state for all spans.
+
+<ResponseField name="const std::unordered_map<ObjectId, SpanRuntimeState>&" type="const std::unordered_map<ObjectId, SpanRuntimeState>&">
+  Map of span IDs to runtime states
+</ResponseField>
+
+**SpanRuntimeState structure:**
+
+```cpp
+struct SpanRuntimeState {
+  ObjectId span_id = kInvalidObjectId;
+  std::uint64_t data_version = 0;
+  std::uint64_t geometry_version = 0;
+  std::uint64_t bounds_version = 0;
+  std::uint64_t render_version = 0;
+  std::uint64_t raycast_version = 0;
+  DirtyBits dirty_bits = DirtyBits::kNone;
+};
+```
+
+---
+
+### find_span_runtime_state
+
+```cpp
+const SpanRuntimeState* find_span_runtime_state(ObjectId span_id) const
+```
+
+Finds runtime state for a specific span.
+
+<ParamField path="span_id" type="ObjectId" required>
+  Span ID to query
+</ParamField>
+
+<ResponseField name="const SpanRuntimeState*" type="const SpanRuntimeState*">
+  Pointer to runtime state, or nullptr if not found
+</ResponseField>
+
+---
+
+### find_span_visual_cache
+
+```cpp
+const SpanVisualCacheEntry* find_span_visual_cache(ObjectId span_id) const
+```
+
+Finds visual cache entry for a specific span.
+
+<ParamField path="span_id" type="ObjectId" required>
+  Span ID to query
+</ParamField>
+
+<ResponseField name="const SpanVisualCacheEntry*" type="const SpanVisualCacheEntry*">
+  Pointer to visual cache entry, or nullptr if not cached
+</ResponseField>
+
+**SpanVisualCacheEntry structure:**
+
+```cpp
+struct SpanVisualCacheEntry {
+  std::vector<VisualPart> parts{};
+  std::uint64_t source_version = 0;
+};
+```
+
+---
+
+## Usage Example
+
+```cpp
+#include "wire/core/core_state.hpp"
+
+using namespace wire::core;
+
+void render_network(const CoreState& state) {
+  CoreView view = state.view();
+  
+  // Iterate over all poles
+  for (const auto& [id, pole] : view.poles().all()) {
+    // Render pole...
+  }
+  
+  // Iterate over all spans
+  for (const auto& [id, span] : view.spans().all()) {
+    // Get cached curve points
+    const auto* curve = view.find_span_visual_cache(id);
+    if (curve) {
+      for (const auto& part : curve->parts) {
+        // Render visual part...
+      }
+    }
+  }
+  
+  // Check recalc stats
+  const auto& stats = view.last_recalc_stats();
+  std::cout << "Last recalc processed " << stats.total_processed() 
+            << " items" << std::endl;
+}
+```
+
+## Obtaining a CoreView
+
+Call `view()` on a `CoreState` instance:
+
+```cpp
+CoreState state;
+// ... make edits ...
+
+CoreView view = state.view();
+```
+
+**Source location:** `core_state.hpp:592`
+
+```cpp
+inline CoreView CoreState::view() const { 
+  return CoreView(*this); 
+}
+```
+
+## See Also
+
+- [CoreState](/api/core-state) - Mutable state container
+- [EditResult](/api/edit-result) - Result pattern for mutations
+- [Entity Layer](/concepts/entity-layer) - Understanding entity stores

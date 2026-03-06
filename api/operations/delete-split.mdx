@@ -1,0 +1,282 @@
+---
+title: "Deletion and Splitting"
+description: "API reference for deleting spans and splitting spans into multiple segments"
+---
+
+## DeleteSpan
+
+Removes a span from the network. The span's endpoints (ports) are preserved but disconnected.
+
+```cpp
+EditResult<ObjectId> DeleteSpan(ObjectId span_id);
+```
+
+<ParamField path="span_id" type="ObjectId" required>
+  ID of the span to delete
+</ParamField>
+
+**Returns:** `EditResult<ObjectId>` containing the deleted span ID if successful. The `change_set.deleted_ids` field includes the span ID.
+
+### Example
+
+```cpp
+wire::core::CoreState state;
+
+// Delete an existing span
+auto result = state.DeleteSpan(span_id);
+
+if (result.ok) {
+    // Span removed, ports remain available for reconnection
+    std::cout << "Deleted span: " << result.value << std::endl;
+} else {
+    std::cerr << "Failed to delete: " << result.error << std::endl;
+}
+```
+
+### Behavior Notes
+
+<Note>
+  - The span is removed from the network topology
+  - Connected ports remain on their owner poles
+  - Bundle associations are preserved (other spans may still reference the same bundle)
+  - Anchors at the span endpoints are **not** automatically deleted
+  - The span is removed from all internal connection indexes
+</Note>
+
+### Use Cases
+
+- Removing incorrect connections during network editing
+- Clearing old spans before regeneration
+- Simplifying network topology
+- Preparing for span replacement operations
+
+---
+
+## SplitSpan
+
+Divides an existing span into two new spans by creating a new port at the split point.
+
+```cpp
+EditResult<SplitSpanResult> SplitSpan(
+    ObjectId span_id,
+    double t
+);
+```
+
+<ParamField path="span_id" type="ObjectId" required>
+  ID of the span to split
+</ParamField>
+
+<ParamField path="t" type="double" required>
+  Parametric position along the span where the split occurs (0.0 to 1.0). 
+  A value of 0.5 splits the span at its midpoint.
+</ParamField>
+
+**Returns:** `EditResult<SplitSpanResult>` containing details about the split operation
+
+### SplitSpanResult Structure
+
+```cpp
+struct SplitSpanResult {
+    ObjectId old_span_id = kInvalidObjectId;      // Original span (now deleted)
+    ObjectId new_port_id = kInvalidObjectId;      // Newly created split port
+    ObjectId new_span_a_id = kInvalidObjectId;    // First half span
+    ObjectId new_span_b_id = kInvalidObjectId;    // Second half span
+};
+```
+
+<ResponseField name="old_span_id" type="ObjectId">
+  ID of the original span that was split (now deleted)
+</ResponseField>
+
+<ResponseField name="new_port_id" type="ObjectId">
+  ID of the newly created port at the split point
+</ResponseField>
+
+<ResponseField name="new_span_a_id" type="ObjectId">
+  ID of the first span segment (from original port_a to new split port)
+</ResponseField>
+
+<ResponseField name="new_span_b_id" type="ObjectId">
+  ID of the second span segment (from split port to original port_b)
+</ResponseField>
+
+### Example
+
+```cpp
+wire::core::CoreState state;
+
+// Create a span between two poles
+auto pole_a = state.AddPole({}, 10.0);
+auto pole_b = state.AddPole({{100.0, 0.0, 0.0}}, 10.0);
+auto port_a = state.AddPort(pole_a.value, {0.0, 0.0, 8.0});
+auto port_b = state.AddPort(pole_b.value, {100.0, 0.0, 8.0});
+auto span = state.AddSpan(port_a.value, port_b.value,
+                         wire::core::SpanKind::kDistribution,
+                         wire::core::SpanLayer::kLowVoltage);
+
+// Split span at 40% along its length
+auto split_result = state.SplitSpan(span.value, 0.4);
+
+if (split_result.ok) {
+    auto split = split_result.value;
+    
+    std::cout << "Split created:" << std::endl;
+    std::cout << "  New port: " << split.new_port_id << std::endl;
+    std::cout << "  Span A (0-40%): " << split.new_span_a_id << std::endl;
+    std::cout << "  Span B (40-100%): " << split.new_span_b_id << std::endl;
+    
+    // The split port can now be accessed for further operations
+    auto* split_port = state.view().ports().find(split.new_port_id);
+    if (split_port) {
+        std::cout << "  Split port position: (" 
+                  << split_port->world_position.x << ", "
+                  << split_port->world_position.y << ", "
+                  << split_port->world_position.z << ")" << std::endl;
+    }
+}
+```
+
+### Detailed Behavior
+
+<Steps>
+  <Step title="Original span is deleted">
+    The span specified by `span_id` is removed from the network
+  </Step>
+  
+  <Step title="Split port is created">
+    A new port is generated at the parametric position `t` along the original span's geometry. The port is created without an owner pole (it becomes a free-floating endpoint).
+  </Step>
+  
+  <Step title="Two new spans are created">
+    - **Span A** connects the original `port_a` to the new split port
+    - **Span B** connects the new split port to the original `port_b`
+    - Both new spans inherit properties from the original span (kind, layer, bundle_id, etc.)
+  </Step>
+  
+  <Step title="Topology is updated">
+    Connection indexes and span runtime states are updated to reflect the new topology
+  </Step>
+</Steps>
+
+### Split Port Properties
+
+The newly created split port has these characteristics:
+
+- **owner_pole_id**: Set to `kInvalidObjectId` (free-floating port)
+- **world_position**: Interpolated from the original span geometry at parameter `t`
+- **kind**: Inherited from the original span's endpoint ports
+- **layer**: Inherited from the original span's endpoint ports
+- **position_mode**: Set to `PortPositionMode::kManual`
+
+### Use Cases
+
+<CardGroup cols={2}>
+  <Card title="Adding intermediate poles" icon="tower-cell">
+    Split existing spans to insert new poles at specific locations
+  </Card>
+  
+  <Card title="Service drop connections" icon="house-signal">
+    Split trunk spans to add drop points for customer service lines
+  </Card>
+  
+  <Card title="Network refinement" icon="diagram-project">
+    Subdivide long spans for better geometry or load distribution
+  </Card>
+  
+  <Card title="Attachment points" icon="link">
+    Create connection points for branch circuits or equipment
+  </Card>
+</CardGroup>
+
+### Error Conditions
+
+The operation will fail if:
+
+- The `span_id` is invalid or not found
+- The `t` parameter is outside the valid range [0.0, 1.0]
+- The span's endpoint ports cannot be resolved
+- Memory allocation for new entities fails
+
+```cpp
+auto result = state.SplitSpan(invalid_span_id, 0.5);
+
+if (!result.ok) {
+    std::cerr << "Split failed: " << result.error << std::endl;
+    // Error might be: "Span not found" or "Invalid t parameter"
+}
+```
+
+### Advanced Example: Split and Connect
+
+```cpp
+// Split a span and connect the split port to a new pole
+
+// 1. Split the trunk span at midpoint
+auto split = state.SplitSpan(trunk_span_id, 0.5);
+
+if (!split.ok) return;
+
+// 2. Create a new pole near the split point
+auto* split_port = state.view().ports().find(split.value.new_port_id);
+if (!split_port) return;
+
+wire::core::Transformd pole_transform{};
+pole_transform.position = split_port->world_position;
+pole_transform.position.z = 0.0;  // Place pole at ground level
+
+auto new_pole = state.AddPole(pole_transform, 12.0, "Split Pole");
+
+// 3. Create a new port on the pole at the same height as split port
+auto new_port = state.AddPort(new_pole.value, 
+                              split_port->world_position,
+                              split_port->kind,
+                              split_port->layer);
+
+// 4. Connect the free split port to the new pole's port
+auto connecting_span = state.AddSpan(
+    split.value.new_port_id,
+    new_port.value,
+    wire::core::SpanKind::kDistribution,
+    wire::core::SpanLayer::kLowVoltage
+);
+
+// 5. Optionally delete the floating split port and reconnect spans
+if (connecting_span.ok) {
+    // Now you have: PortA --SpanA--> NewPolePort --SpanB--> PortB
+    // with the original split port connected to the new pole
+}
+```
+
+---
+
+## Combining Delete and Split Operations
+
+These operations can be combined for complex topology editing:
+
+```cpp
+// Example: Replace a span with a different routing
+
+// 1. Store original endpoint IDs
+auto* old_span = state.view().spans().find(span_to_replace);
+if (!old_span) return;
+
+ObjectId port_a = old_span->port_a_id;
+ObjectId port_b = old_span->port_b_id;
+
+// 2. Delete the old span
+state.DeleteSpan(span_to_replace);
+
+// 3. Create intermediate pole
+auto mid_pole = state.AddPole({{50.0, 20.0, 0.0}}, 10.0);
+auto mid_port = state.AddPort(mid_pole.value, {50.0, 20.0, 8.0});
+
+// 4. Create two new spans through the intermediate point
+state.AddSpan(port_a, mid_port.value, 
+             wire::core::SpanKind::kDistribution);
+state.AddSpan(mid_port.value, port_b,
+             wire::core::SpanKind::kDistribution);
+
+// 5. Commit to update geometry
+state.Commit();
+```

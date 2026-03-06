@@ -1,0 +1,172 @@
+---
+title: "Pole"
+description: "Entity-layer support object representing a utility pole in the wire network."
+---
+
+## Overview
+
+The `Pole` struct represents a physical utility pole in the wire network. Poles serve as support structures for wires and provide attachment points through ports and anchors.
+
+## Structure Definition
+
+```cpp
+struct Pole {
+  ObjectId id = kInvalidObjectId;
+  std::string display_id{};
+  std::string name{};
+  Transformd world_transform{};
+  double height_m = 10.0;
+  PoleKind kind = PoleKind::kGeneric;
+  PoleTypeId pole_type_id = kInvalidPoleTypeId;
+  PoleContextInfo context{};
+  PoleOrientationControl orientation_control{};
+  PlacementMode placement_mode = PlacementMode::kAuto;
+  bool user_edited = false;
+  bool placement_override_flag = false;
+  bool orientation_override_flag = false;
+  GenerationMeta generation{};
+};
+```
+
+## Fields
+
+<ResponseField name="id" type="ObjectId" default="kInvalidObjectId">
+  Unique identifier for the pole entity.
+</ResponseField>
+
+<ResponseField name="display_id" type="std::string">
+  Human-readable identifier displayed in the UI.
+</ResponseField>
+
+<ResponseField name="name" type="std::string">
+  Optional name for the pole.
+</ResponseField>
+
+<ResponseField name="world_transform" type="Transformd">
+  3D transformation defining the pole's position and orientation in world space.
+</ResponseField>
+
+<ResponseField name="height_m" type="double" default="10.0">
+  Height of the pole in meters.
+</ResponseField>
+
+<ResponseField name="kind" type="PoleKind" default="kGeneric">
+  Classification of the pole material/type. See [PoleKind enum](#polekind-enum).
+</ResponseField>
+
+<ResponseField name="pole_type_id" type="PoleTypeId" default="kInvalidPoleTypeId">
+  Reference to a pole type definition that specifies available port and anchor slots.
+</ResponseField>
+
+<ResponseField name="context" type="PoleContextInfo">
+  Contextual information about the pole's role in the network (straight, corner, branch, terminal).
+</ResponseField>
+
+<ResponseField name="orientation_control" type="PoleOrientationControl">
+  Manual orientation overrides (180° flip, manual yaw adjustment).
+</ResponseField>
+
+<ResponseField name="placement_mode" type="PlacementMode" default="kAuto">
+  Whether the pole placement is automatic or manually specified.
+</ResponseField>
+
+<ResponseField name="user_edited" type="bool" default="false">
+  Indicates if the user has manually edited this pole.
+</ResponseField>
+
+<ResponseField name="placement_override_flag" type="bool" default="false">
+  Flag indicating placement has been manually overridden.
+</ResponseField>
+
+<ResponseField name="orientation_override_flag" type="bool" default="false">
+  Flag indicating orientation has been manually overridden.
+</ResponseField>
+
+<ResponseField name="generation" type="GenerationMeta">
+  Metadata about how this pole was generated. See [GenerationMeta](#generationmeta-struct).
+</ResponseField>
+
+## Related Types
+
+### PoleKind Enum
+
+```cpp
+enum class PoleKind : std::uint8_t {
+  kGeneric = 0,
+  kWood = 1,
+  kConcrete = 2,
+  kSteel = 3,
+};
+```
+
+Classifies poles by material type:
+- **kGeneric**: Default/unspecified pole type
+- **kWood**: Wooden utility pole
+- **kConcrete**: Concrete utility pole
+- **kSteel**: Steel utility pole
+
+### PoleContextInfo Struct
+
+```cpp
+struct PoleContextInfo {
+  PoleContextKind kind = PoleContextKind::kStraight;
+  double corner_angle_deg = 0.0;
+  double corner_turn_sign = 0.0;
+  double side_scale = 1.0;
+  bool angle_correction_applied = false;
+  bool sharp_orientation_applied = false;
+  double sharp_theta_deg = 0.0;
+  Vec3d sharp_bisector_dir{};
+  Vec3d sharp_side_dir{};
+};
+```
+
+Provides context about the pole's topological role:
+- **kind**: Whether pole is straight, corner, branch, or terminal
+- **corner_angle_deg**: Angle at corner poles
+- **corner_turn_sign**: Direction of turn (-1: right, +1: left, 0: straight)
+- **side_scale**: Scaling factor for port placement
+- **angle_correction_applied**: Whether angle correction was applied to ports
+- **sharp_orientation_applied**: Whether sharp corner orientation logic was used
+- **sharp_theta_deg**: Angle for sharp corner calculations
+- **sharp_bisector_dir**: Bisector direction for sharp corners
+- **sharp_side_dir**: Side direction for sharp corners
+
+### PoleOrientationControl Struct
+
+```cpp
+struct PoleOrientationControl {
+  bool flip_180 = false;
+  bool manual_yaw_override = false;
+  double manual_yaw_deg = 0.0;
+};
+```
+
+Allows manual control of pole orientation:
+- **flip_180**: Flip the pole 180 degrees
+- **manual_yaw_override**: Enable manual yaw angle override
+- **manual_yaw_deg**: Manual yaw angle in degrees
+
+### GenerationMeta Struct
+
+```cpp
+struct GenerationMeta {
+  bool generated = false;
+  GenerationSource source = GenerationSource::kManual;
+  std::uint64_t generation_session_id = 0;
+  std::uint32_t generation_order = 0;
+};
+```
+
+Tracks how the pole was created:
+- **generated**: Whether this pole was auto-generated
+- **source**: Source of generation (manual or road-based auto-generation)
+- **generation_session_id**: ID of the generation session that created this pole
+- **generation_order**: Order within the generation session
+
+## Usage Notes
+
+- Poles are the primary structural elements in the wire network
+- Each pole can have multiple [Ports](/api/entities/port) and [Anchors](/api/entities/anchor)
+- The `pole_type_id` references a `PoleTypeDefinition` that defines available slot templates
+- Context information is used for automatic port placement and orientation

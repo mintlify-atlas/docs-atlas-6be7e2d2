@@ -1,0 +1,670 @@
+---
+title: Entity Layer
+description: Deep dive into Wire's six persistent entity types and their properties
+---
+
+## Overview
+
+The Entity Layer is the **authoritative, persistent data model** for Wire networks. It contains six fundamental entity types that define the complete topology:
+
+<CardGroup cols={3}>
+  <Card title="Pole" icon="tower-cell">
+    Support structures
+  </Card>
+  <Card title="Port" icon="plug">
+    Connection endpoints
+  </Card>
+  <Card title="Anchor" icon="link">
+    Support-only points
+  </Card>
+  <Card title="Bundle" icon="wave-square">
+    Multi-conductor groups
+  </Card>
+  <Card title="Span" icon="bezier-curve">
+    Wire connections
+  </Card>
+  <Card title="Attachment" icon="paperclip">
+    Span-mounted objects
+  </Card>
+</CardGroup>
+
+This page provides a comprehensive reference for each entity type's structure, properties, and usage patterns.
+
+## Pole
+
+### Structure
+
+Poles are **vertical support structures** (utility poles, towers, posts) that own ports and anchors.
+
+```cpp wire/core/entities.hpp
+struct Pole {
+  ObjectId id = kInvalidObjectId;
+  std::string display_id{};              // Human-readable ID (e.g., "POLE-000042")
+  std::string name{};                    // Optional user-assigned name
+  
+  // Transform and geometry
+  Transformd world_transform{};          // Position, rotation, scale
+  double height_m = 10.0;                // Pole height in meters
+  PoleKind kind = PoleKind::kGeneric;    // Material classification
+  PoleTypeId pole_type_id = kInvalidPoleTypeId;  // Template reference
+  
+  // Context and orientation
+  PoleContextInfo context{};             // Corner angle, side scale, etc.
+  PoleOrientationControl orientation_control{};  // Flip, manual yaw
+  
+  // Placement control
+  PlacementMode placement_mode = PlacementMode::kAuto;
+  bool user_edited = false;
+  bool placement_override_flag = false;
+  bool orientation_override_flag = false;
+  
+  // Generation metadata
+  GenerationMeta generation{};
+};
+```
+
+### Pole Kinds
+
+```cpp wire/core/entities.hpp
+enum class PoleKind : std::uint8_t {
+  kGeneric = 0,    // Unspecified material
+  kWood = 1,       // Wooden utility pole
+  kConcrete = 2,   // Concrete pole
+  kSteel = 3,      // Steel lattice tower or tubular pole
+};
+```
+
+<AccordionGroup>
+  <Accordion title="Generic Poles">
+    Default type for manually placed poles. No specific material properties.
+  </Accordion>
+  <Accordion title="Wood Poles">
+    Most common in North American distribution networks. Typical heights: 10-15m.
+  </Accordion>
+  <Accordion title="Concrete Poles">
+    Used in areas requiring higher strength or fire resistance.
+  </Accordion>
+  <Accordion title="Steel Towers">
+    Transmission towers or heavy-duty distribution structures.
+  </Accordion>
+</AccordionGroup>
+
+### Transform System
+
+Poles use a **double-precision transform** with Euler angles:
+
+```cpp wire/core/types.hpp
+struct Transformd {
+  Vec3d position{};                  // World-space position (cm)
+  Vec3d rotation_euler_deg{};        // Rotation in degrees (pitch, yaw, roll)
+  Vec3d scale{1.0, 1.0, 1.0};       // Scale (typically uniform)
+};
+
+struct Vec3d {
+  double x = 0.0;
+  double y = 0.0;
+  double z = 0.0;
+};
+```
+
+<Warning>
+Wire uses **Unreal Engine coordinate conventions**: X=forward, Y=right, Z=up. Positions are in **centimeters** with double precision for geospatial accuracy.
+</Warning>
+
+### Pole Context
+
+The `PoleContextInfo` stores **geometric analysis** from path generation:
+
+```cpp wire/core/entities.hpp
+struct PoleContextInfo {
+  PoleContextKind kind = PoleContextKind::kStraight;
+  double corner_angle_deg = 0.0;         // Angle at corners
+  double corner_turn_sign = 0.0;         // -1:right, +1:left, 0:straight
+  double side_scale = 1.0;               // Scale factor for slot offsets
+  bool angle_correction_applied = false;
+  
+  // Sharp corner diagnostics
+  bool sharp_orientation_applied = false;
+  double sharp_theta_deg = 0.0;
+  Vec3d sharp_bisector_dir{};
+  Vec3d sharp_side_dir{};
+};
+
+enum class PoleContextKind : std::uint8_t {
+  kStraight = 0,   // Straight run (no angle)
+  kCorner = 1,     // Path turns at this pole
+  kBranch = 2,     // Multiple outgoing spans
+  kTerminal = 3,   // End of line
+};
+```
+
+<Info>
+Context information is automatically computed during **path generation** and used for automatic port slot selection and angle correction.
+</Info>
+
+### Placement Modes
+
+```cpp wire/core/entities.hpp
+enum class PlacementMode : std::uint8_t {
+  kAuto = 0,    // Automatically positioned by generation
+  kManual = 1,  // User-placed, should not be moved automatically
+};
+```
+
+Poles can be marked as `kManual` to prevent them from being moved during regeneration:
+
+```cpp
+auto result = state.SetPolePlacementMode(pole_id, PlacementMode::kManual);
+// Pole is now pinned and won't be affected by regeneration
+```
+
+### Pole Type Templates
+
+Poles can reference a **PoleTypeDefinition** that defines available port and anchor slots:
+
+```cpp wire/core/entities.hpp
+struct PoleTypeDefinition {
+  PoleTypeId id;
+  std::string name;
+  std::string description;
+  std::vector<PortSlotTemplate> port_slots;     // Available connection points
+  std::vector<AnchorSlotTemplate> anchor_slots; // Available support points
+};
+```
+
+Example pole type:
+
+```cpp
+PoleTypeDefinition distribution_pole{
+  .id = 1,
+  .name = "Standard Distribution",
+  .port_slots = {
+    {.slot_id = 0, .category = ConnectionCategory::kHighVoltage, 
+     .local_position = {0, -0.5, 9.0}, .layer = 1},
+    {.slot_id = 1, .category = ConnectionCategory::kLowVoltage,
+     .local_position = {0, -0.4, 7.5}, .layer = 2},
+    {.slot_id = 2, .category = ConnectionCategory::kCommunication,
+     .local_position = {0, -0.3, 6.0}, .layer = 3},
+  }
+};
+```
+
+<Tip>
+Apply a pole type to automatically generate ports from templates:
+
+```cpp
+auto result = state.ApplyPoleType(pole_id, pole_type_id);
+// Creates ports at all template slot positions
+```
+</Tip>
+
+## Port
+
+### Structure
+
+Ports are **connection endpoints** where wires attach. They're owned by poles and referenced by spans.
+
+```cpp wire/core/entities.hpp
+struct Port {
+  ObjectId id = kInvalidObjectId;
+  std::string display_id{};
+  ObjectId owner_pole_id = kInvalidObjectId;  // Parent pole
+  
+  // Position and orientation
+  Vec3d world_position{};
+  Frame3d direction{};
+  
+  // Classification
+  PortKind kind = PortKind::kGeneric;
+  PortLayer layer = PortLayer::kUnknown;
+  ConnectionCategory category = ConnectionCategory::kLowVoltage;
+  
+  // Template association
+  int source_slot_id = -1;               // Template slot ID (-1 if not from template)
+  int template_layer = 1;                // Visual stacking order
+  SlotSide template_side = SlotSide::kCenter;
+  SlotRole template_role = SlotRole::kNeutral;
+  bool generated_from_template = false;
+  bool generated_by_rule = false;
+  
+  // Generation context
+  ConnectionContext placement_context = ConnectionContext::kTrunkContinue;
+  bool angle_correction_applied = false;
+  double side_scale_applied = 1.0;
+  
+  // Placement control
+  PortPositionMode position_mode = PortPositionMode::kAuto;
+  PortPlacementSourceKind placement_source = PortPlacementSourceKind::kUnknown;
+  bool user_edited_position = false;
+  bool placement_override_flag = false;
+  bool orientation_override_flag = false;
+};
+```
+
+### Port Kinds and Layers
+
+```cpp wire/core/entities.hpp
+enum class PortKind : std::uint8_t {
+  kGeneric = 0,
+  kPower = 1,           // Electrical power
+  kCommunication = 2,   // Data, phone, cable
+};
+
+enum class PortLayer : std::uint8_t {
+  kUnknown = 0,
+  kHighVoltage = 1,     // Transmission/primary distribution (>1kV)
+  kLowVoltage = 2,      // Secondary distribution (<1kV)
+  kCommunication = 3,   // Phone, cable, data
+  kOptical = 4,         // Fiber optic
+};
+```
+
+<Info>
+**PortKind** is a broad classification (power vs. communication). **PortLayer** is more specific and used for automatic slot selection.
+</Info>
+
+### Slot Templates
+
+Ports can be generated from **PortSlotTemplate** definitions:
+
+```cpp wire/core/entities.hpp
+struct PortSlotTemplate {
+  int slot_id = 0;
+  ConnectionCategory category = ConnectionCategory::kLowVoltage;
+  Vec3d local_position{};           // Position relative to pole origin
+  Frame3d local_direction{};        // Orientation for visual geometry
+  int layer = 1;                    // Vertical stacking order
+  SlotSide side = SlotSide::kCenter;  // Left, center, right
+  SlotRole role = SlotRole::kNeutral; // Connection preference
+  int priority = 0;                 // Selection priority (higher = preferred)
+  bool allow_multiple = false;      // Allow multiple ports per slot
+  bool enabled = true;
+};
+```
+
+### Slot Sides
+
+```cpp wire/core/entities.hpp
+enum class SlotSide : std::uint8_t {
+  kLeft = 0,    // Left side of pole (from pole's perspective)
+  kCenter = 1,  // Centered on pole
+  kRight = 2,   // Right side of pole
+};
+```
+
+Slot sides enable **automatic angle correction** at corners. The system scales slot offsets based on corner angles to maintain proper clearance.
+
+### Slot Roles
+
+```cpp wire/core/entities.hpp
+enum class SlotRole : std::uint8_t {
+  kNeutral = 0,        // No preference
+  kTrunkPreferred = 1, // Prefer for main line continuation
+  kBranchPreferred = 2, // Prefer for branch connections
+  kDropPreferred = 3,  // Prefer for service drops
+};
+```
+
+Roles provide **hints** to the automatic slot selection algorithm during connection generation.
+
+### Position Modes
+
+```cpp wire/core/entities.hpp
+enum class PortPositionMode : std::uint8_t {
+  kAuto = 0,    // Automatically updated when pole moves
+  kManual = 1,  // User-specified, independent of pole transform
+};
+```
+
+Ports can be manually positioned independently of their owner pole:
+
+```cpp
+// Set manual position
+auto result = state.SetPortWorldPositionManual(port_id, new_position);
+
+// Reset to automatic positioning
+auto result2 = state.ResetPortPositionToAuto(port_id);
+```
+
+<Warning>
+Manually positioned ports **don't move** when their owner pole moves. This is useful for special cases but can lead to invalid geometry if not managed carefully.
+</Warning>
+
+## Anchor
+
+### Structure
+
+Anchors are **support-only attachment points** that provide structural support without logical connections.
+
+```cpp wire/core/entities.hpp
+struct Anchor {
+  ObjectId id = kInvalidObjectId;
+  std::string display_id{};
+  ObjectId owner_pole_id = kInvalidObjectId;  // Parent pole
+  
+  Vec3d world_position{};
+  AnchorSupportKind support_kind = AnchorSupportKind::kGeneric;
+  double support_strength = 1.0;  // Relative strength (0-1)
+  
+  // Template association
+  int source_slot_id = -1;
+  bool generated_from_template = false;
+};
+```
+
+### Anchor Support Kinds
+
+```cpp wire/core/entities.hpp
+enum class AnchorSupportKind : std::uint8_t {
+  kGeneric = 0,
+  kGround = 1,     // Ground-mounted guy wire anchor
+  kBuilding = 2,   // Building attachment point
+  kMidair = 3,     // Dead-end or strain insulator
+};
+```
+
+<AccordionGroup>
+  <Accordion title="Ground Anchors">
+    Guy wire anchors embedded in the ground to provide lateral support.
+  </Accordion>
+  <Accordion title="Building Anchors">
+    Attachment points on buildings for service drops or strain relief.
+  </Accordion>
+  <Accordion title="Midair Anchors">
+    Dead-end insulators or strain assemblies that provide tension support.
+  </Accordion>
+</AccordionGroup>
+
+### Anchor vs. Port
+
+Key differences:
+
+| Feature | Port | Anchor |
+|---------|------|--------|
+| **Purpose** | Logical connections | Structural support |
+| **Spans** | Connect to ports | Optionally reference anchors |
+| **Topology** | Part of network graph | Not part of routing |
+| **Visual Impact** | May generate support arms | Affects visual geometry only |
+
+<Tip>
+Anchors are useful for modeling **insulators and strain assemblies** without adding unnecessary complexity to the topology graph.
+</Tip>
+
+## Bundle
+
+### Structure
+
+Bundles define **shared properties for groups of parallel conductors**.
+
+```cpp wire/core/entities.hpp
+struct Bundle {
+  ObjectId id = kInvalidObjectId;
+  std::string display_id{};
+  
+  int conductor_count = 1;          // Number of parallel wires
+  double phase_spacing_m = 0.3;     // Distance between conductors
+  BundleKind kind = BundleKind::kLowVoltage;
+  
+  // Visual policy (authoritative settings, not generated geometry)
+  double visual_sag_ratio = 0.03;           // Sag as fraction of span length
+  double visual_wire_radius_m = 0.015;      // Wire thickness for rendering
+  bool visual_use_reference_length = true;  // Use reference length for sag
+};
+```
+
+### Bundle Kinds
+
+```cpp wire/core/entities.hpp
+enum class BundleKind : std::uint8_t {
+  kLowVoltage = 0,      // Residential/commercial distribution
+  kHighVoltage = 1,     // Transmission lines
+  kCommunication = 2,   // Phone, cable, data
+  kOptical = 3,         // Fiber optic
+};
+```
+
+### Conductor Count
+
+Typical conductor counts by application:
+
+<CardGroup cols={2}>
+  <Card title="Single Phase (1-2)" icon="wave-sine">
+    Single conductor or conductor + neutral for residential service
+  </Card>
+  <Card title="Three Phase (3-4)" icon="wave-square">
+    Three phase conductors, optionally with neutral
+  </Card>
+  <Card title="Communication (1-4)" icon="tower-broadcast">
+    Variable based on service type (phone, cable, fiber)
+  </Card>
+  <Card title="Optical (1-2)" icon="circle-nodes">
+    Single fiber or redundant pair
+  </Card>
+</CardGroup>
+
+### Visual Sag
+
+The `visual_sag_ratio` controls how much wires droop between poles:
+
+```cpp
+Bundle bundle{
+  .conductor_count = 3,
+  .phase_spacing_m = 0.5,
+  .visual_sag_ratio = 0.03,  // 3% of span length
+};
+
+// For a 30m span: sag = 30 * 0.03 = 0.9m drop
+```
+
+<Info>
+Sag is **visual only** — it doesn't affect the logical topology. The actual catenary curve is approximated using configurable sampling (`GeometrySettings::curve_samples`).
+</Info>
+
+### Reference Length
+
+When `visual_use_reference_length` is enabled, sag is calculated relative to a **reference length** stored in each span:
+
+```cpp wire/core/entities.hpp
+struct Span {
+  // ...
+  double reference_length_m = 0.0;  // Captured on first generation
+};
+```
+
+This keeps visual tension consistent when poles tilt or move slightly:
+
+```cpp
+// Sag with reference length:
+double sag = (span.reference_length_m * bundle.visual_sag_ratio) / 2.0;
+
+// Without reference length:
+double current_length = distance(port_a, port_b);
+double sag = (current_length * bundle.visual_sag_ratio) / 2.0;
+```
+
+## Span
+
+### Structure
+
+Spans are **physical wire connections** between two ports.
+
+```cpp wire/core/entities.hpp
+struct Span {
+  ObjectId id = kInvalidObjectId;
+  std::string display_id{};
+  
+  // Topology
+  ObjectId port_a_id = kInvalidObjectId;    // Source port
+  ObjectId port_b_id = kInvalidObjectId;    // Target port
+  ObjectId bundle_id = kInvalidObjectId;    // Conductor properties
+  ObjectId anchor_a_id = kInvalidObjectId;  // Optional support anchor
+  ObjectId anchor_b_id = kInvalidObjectId;  // Optional support anchor
+  
+  // Classification
+  SpanKind kind = SpanKind::kGeneric;
+  SpanLayer layer = SpanLayer::kUnknown;
+  
+  // Generation context
+  ConnectionContext placement_context = ConnectionContext::kTrunkContinue;
+  bool generated_by_rule = false;
+  bool placement_override_flag = false;
+  bool orientation_override_flag = false;
+  
+  // Visual tension tracking
+  double reference_length_m = 0.0;
+  
+  GenerationMeta generation{};
+};
+```
+
+### Span Kinds
+
+```cpp wire/core/entities.hpp
+enum class SpanKind : std::uint8_t {
+  kGeneric = 0,       // Unspecified connection type
+  kDistribution = 1,  // Main distribution line
+  kService = 2,       // Service drop to building
+};
+```
+
+### Connection Context
+
+```cpp wire/core/entities.hpp
+enum class ConnectionContext : std::uint8_t {
+  kTrunkContinue = 0,  // Straight-through main line
+  kCornerPass = 1,     // Corner in main line
+  kBranchAdd = 2,      // Branch off main line
+  kDropAdd = 3,        // Service drop
+};
+```
+
+Connection context affects **automatic slot selection** during generation:
+
+- `kTrunkContinue`: Prefer trunk-role slots, maintain layer continuity
+- `kCornerPass`: Apply angle correction, scale slot offsets
+- `kBranchAdd`: Prefer branch-role slots, allow layer variation
+- `kDropAdd`: Prefer drop-role slots, relaxed selection rules
+
+<Info>
+Context is automatically determined during path generation but can be overridden for manual connections.
+</Info>
+
+## Attachment
+
+### Structure
+
+Attachments are **parametric objects positioned along spans**.
+
+```cpp wire/core/entities.hpp
+struct Attachment {
+  ObjectId id = kInvalidObjectId;
+  std::string display_id{};
+  ObjectId span_id = kInvalidObjectId;  // Parent span
+  
+  double t = 0.0;                       // Position [0,1]: 0=port_a, 1=port_b
+  AttachmentKind kind = AttachmentKind::kGeneric;
+  double offset_m = 0.0;                // Perpendicular offset from curve
+};
+```
+
+### Attachment Kinds
+
+```cpp wire/core/entities.hpp
+enum class AttachmentKind : std::uint8_t {
+  kGeneric = 0,    // Unspecified attachment
+  kDamper = 1,     // Vibration damper (Stockbridge, spiral)
+  kSpacer = 2,     // Conductor spacer (bundled conductors)
+  kMarker = 3,     // Visibility marker (aviation balls, flags)
+};
+```
+
+<AccordionGroup>
+  <Accordion title="Vibration Dampers">
+    Stockbridge dampers or spiral dampers to reduce aeolian vibration. Typically placed at ~1/4 span length from each pole.
+  </Accordion>
+  <Accordion title="Conductor Spacers">
+    Maintain separation between bundled conductors in transmission lines.
+  </Accordion>
+  <Accordion title="Visibility Markers">
+    Orange/red balls or flags for aviation safety, often at mid-span.
+  </Accordion>
+</AccordionGroup>
+
+### Parametric Positioning
+
+The `t` parameter defines position along the span:
+
+```cpp
+// Add damper at 1/4 span from port_a
+auto result = state.AddAttachment(span_id, 0.25, AttachmentKind::kDamper);
+
+// Add marker at mid-span
+auto result2 = state.AddAttachment(span_id, 0.5, AttachmentKind::kMarker);
+
+// Add damper at 1/4 span from port_b
+auto result3 = state.AddAttachment(span_id, 0.75, AttachmentKind::kDamper);
+```
+
+Position is evaluated using the span's **curve cache**:
+
+```cpp
+const CurveCacheEntry* curve = state.find_curve_cache(span_id);
+if (curve && !curve->points.empty()) {
+  // Interpolate position at t
+  size_t segment = static_cast<size_t>(t * (curve->points.size() - 1));
+  Vec3d position = lerp(curve->points[segment], curve->points[segment + 1], ...);
+}
+```
+
+## Generation Metadata
+
+Many entities include **GenerationMeta** to track automatic generation:
+
+```cpp wire/core/entities.hpp
+struct GenerationMeta {
+  bool generated = false;                  // Created by automatic generation?
+  GenerationSource source = GenerationSource::kManual;
+  std::uint64_t generation_session_id = 0; // Session that created this entity
+  std::uint32_t generation_order = 0;      // Order within session
+};
+
+enum class GenerationSource : std::uint8_t {
+  kManual = 0,      // User-created
+  kRoadAuto = 1,    // Generated from path/road spec
+};
+```
+
+### Session-Scoped Regeneration
+
+Generation sessions enable **selective regeneration**:
+
+```cpp
+// Initial generation
+auto result = state.GenerateFromBackboneSpec(spec);
+std::uint64_t session_id = result.value.generation_session_id;
+
+// Later: regenerate only entities from this session
+auto regen = state.RegenerateSessionAutoParts(session_id, updated_spec);
+// Only entities with matching generation_session_id are affected
+```
+
+<Tip>
+Use generation sessions to enable **incremental updates** without affecting manually placed entities or other generated lines.
+</Tip>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Data Model" icon="diagram-project" href="/concepts/data-model">
+    Learn about entity relationships
+  </Card>
+  <Card title="Dirty Tracking" icon="clock" href="/concepts/dirty-tracking">
+    Understand version tracking
+  </Card>
+  <Card title="Editing API" icon="code" href="/api/operations/add-entities">
+    Learn how to modify entities
+  </Card>
+  <Card title="Generation API" icon="wand-magic-sparkles" href="/api/operations/generation">
+    Explore automatic network generation
+  </Card>
+</CardGroup>

@@ -1,0 +1,1429 @@
+---
+title: 'CoreState'
+description: 'Mutable state container for Wire network topology'
+---
+
+## Overview
+
+`CoreState` is the primary mutable state container for managing utility network topology. It provides methods for creating, editing, and querying poles, ports, anchors, spans, bundles, and attachments. All mutations return `EditResult<T>` to track changes and propagate errors.
+
+**Location:** `wire/core/core_state.hpp:223-374`
+
+**Namespace:** `wire::core`
+
+## Constructor
+
+```cpp
+CoreState()
+```
+
+Creates a new empty core state with default settings and registered pole/bundle templates.
+
+## Entity Creation Methods
+
+### AddPole
+
+```cpp
+EditResult<ObjectId> AddPole(
+  const Transformd& world_transform,
+  double height_m = 10.0,
+  std::string_view name = {},
+  PoleKind kind = PoleKind::kGeneric,
+  PlacementMode placement_mode = PlacementMode::kAuto
+)
+```
+
+Creates a new pole in the network.
+
+<ParamField path="world_transform" type="const Transformd&" required>
+  World-space position, rotation, and scale
+</ParamField>
+
+<ParamField path="height_m" type="double" default="10.0">
+  Height of the pole in meters
+</ParamField>
+
+<ParamField path="name" type="std::string_view" default="">
+  Optional display name for the pole
+</ParamField>
+
+<ParamField path="kind" type="PoleKind" default="PoleKind::kGeneric">
+  Type of pole (kGeneric, kWood, kConcrete, kSteel)
+</ParamField>
+
+<ParamField path="placement_mode" type="PlacementMode" default="PlacementMode::kAuto">
+  Placement mode (kAuto for ground snapping, kManual for exact positioning)
+</ParamField>
+
+<ResponseField name="EditResult<ObjectId>" type="EditResult<ObjectId>">
+  Result containing the new pole's ObjectId on success, or error details on failure
+</ResponseField>
+
+**Example:**
+
+```cpp
+auto result = state.AddPole(
+  Transformd{{10.0, 20.0, 0.0}},
+  12.0,
+  "Pole_001",
+  PoleKind::kWood,
+  PlacementMode::kAuto
+);
+if (result.ok) {
+  ObjectId pole_id = result.value;
+  // Use pole_id...
+}
+```
+
+---
+
+### AddPort
+
+```cpp
+EditResult<ObjectId> AddPort(
+  ObjectId owner_pole_id,
+  const Vec3d& world_position,
+  PortKind kind = PortKind::kGeneric,
+  PortLayer layer = PortLayer::kUnknown,
+  const Frame3d& direction = {}
+)
+```
+
+Creates a new port attached to a pole.
+
+<ParamField path="owner_pole_id" type="ObjectId" required>
+  ID of the pole that owns this port
+</ParamField>
+
+<ParamField path="world_position" type="const Vec3d&" required>
+  World-space position of the port
+</ParamField>
+
+<ParamField path="kind" type="PortKind" default="PortKind::kGeneric">
+  Port type (kGeneric, kPower, kCommunication)
+</ParamField>
+
+<ParamField path="layer" type="PortLayer" default="PortLayer::kUnknown">
+  Voltage/signal layer (kHighVoltage, kLowVoltage, kCommunication, kOptical)
+</ParamField>
+
+<ParamField path="direction" type="const Frame3d&" default="{}">
+  Optional directional frame for the port
+</ParamField>
+
+<ResponseField name="EditResult<ObjectId>" type="EditResult<ObjectId>">
+  Result containing the new port's ObjectId
+</ResponseField>
+
+---
+
+### AddAnchor
+
+```cpp
+EditResult<ObjectId> AddAnchor(
+  ObjectId owner_pole_id,
+  const Vec3d& world_position,
+  AnchorSupportKind support_kind = AnchorSupportKind::kGeneric,
+  double support_strength = 1.0
+)
+```
+
+Creates a new anchor point for guy-wires or strain relief.
+
+<ParamField path="owner_pole_id" type="ObjectId" required>
+  ID of the pole that owns this anchor
+</ParamField>
+
+<ParamField path="world_position" type="const Vec3d&" required>
+  World-space position of the anchor
+</ParamField>
+
+<ParamField path="support_kind" type="AnchorSupportKind" default="AnchorSupportKind::kGeneric">
+  Type of support (kGeneric, kGround, kBuilding, kMidair)
+</ParamField>
+
+<ParamField path="support_strength" type="double" default="1.0">
+  Relative strength of the anchor support
+</ParamField>
+
+<ResponseField name="EditResult<ObjectId>" type="EditResult<ObjectId>">
+  Result containing the new anchor's ObjectId
+</ResponseField>
+
+---
+
+### AddBundle
+
+```cpp
+EditResult<ObjectId> AddBundle(
+  int conductor_count,
+  double phase_spacing_m,
+  BundleKind kind = BundleKind::kLowVoltage
+)
+```
+
+Creates a new conductor bundle configuration.
+
+<ParamField path="conductor_count" type="int" required>
+  Number of conductors in the bundle
+</ParamField>
+
+<ParamField path="phase_spacing_m" type="double" required>
+  Spacing between conductors in meters
+</ParamField>
+
+<ParamField path="kind" type="BundleKind" default="BundleKind::kLowVoltage">
+  Bundle type (kLowVoltage, kHighVoltage, kCommunication, kOptical)
+</ParamField>
+
+<ResponseField name="EditResult<ObjectId>" type="EditResult<ObjectId>">
+  Result containing the new bundle's ObjectId
+</ResponseField>
+
+---
+
+### AddSpan
+
+```cpp
+EditResult<ObjectId> AddSpan(
+  ObjectId port_a_id,
+  ObjectId port_b_id,
+  SpanKind kind = SpanKind::kGeneric,
+  SpanLayer layer = SpanLayer::kUnknown,
+  ObjectId bundle_id = kInvalidObjectId,
+  ObjectId anchor_a_id = kInvalidObjectId,
+  ObjectId anchor_b_id = kInvalidObjectId
+)
+```
+
+Creates a new span connecting two ports.
+
+<ParamField path="port_a_id" type="ObjectId" required>
+  Source port ID
+</ParamField>
+
+<ParamField path="port_b_id" type="ObjectId" required>
+  Target port ID
+</ParamField>
+
+<ParamField path="kind" type="SpanKind" default="SpanKind::kGeneric">
+  Span type (kGeneric, kDistribution, kService)
+</ParamField>
+
+<ParamField path="layer" type="SpanLayer" default="SpanLayer::kUnknown">
+  Voltage/signal layer
+</ParamField>
+
+<ParamField path="bundle_id" type="ObjectId" default="kInvalidObjectId">
+  Optional bundle configuration to use
+</ParamField>
+
+<ParamField path="anchor_a_id" type="ObjectId" default="kInvalidObjectId">
+  Optional anchor at port A
+</ParamField>
+
+<ParamField path="anchor_b_id" type="ObjectId" default="kInvalidObjectId">
+  Optional anchor at port B
+</ParamField>
+
+<ResponseField name="EditResult<ObjectId>" type="EditResult<ObjectId>">
+  Result containing the new span's ObjectId
+</ResponseField>
+
+---
+
+### AddAttachment
+
+```cpp
+EditResult<ObjectId> AddAttachment(
+  ObjectId span_id,
+  double t,
+  AttachmentKind kind = AttachmentKind::kGeneric,
+  double offset_m = 0.0
+)
+```
+
+Adds an attachment (damper, spacer, marker) to a span.
+
+<ParamField path="span_id" type="ObjectId" required>
+  ID of the span to attach to
+</ParamField>
+
+<ParamField path="t" type="double" required>
+  Parametric position along span (0.0 = start, 1.0 = end)
+</ParamField>
+
+<ParamField path="kind" type="AttachmentKind" default="AttachmentKind::kGeneric">
+  Type of attachment (kGeneric, kDamper, kSpacer, kMarker)
+</ParamField>
+
+<ParamField path="offset_m" type="double" default="0.0">
+  Perpendicular offset from span in meters
+</ParamField>
+
+<ResponseField name="EditResult<ObjectId>" type="EditResult<ObjectId>">
+  Result containing the new attachment's ObjectId
+</ResponseField>
+
+---
+
+## Entity Mutation Methods
+
+### MovePole
+
+```cpp
+EditResult<ObjectId> MovePole(
+  ObjectId pole_id,
+  const Transformd& new_world_transform
+)
+```
+
+Moves a pole to a new world-space transform.
+
+<ParamField path="pole_id" type="ObjectId" required>
+  ID of the pole to move
+</ParamField>
+
+<ParamField path="new_world_transform" type="const Transformd&" required>
+  New world-space position, rotation, and scale
+</ParamField>
+
+<ResponseField name="EditResult<ObjectId>" type="EditResult<ObjectId>">
+  Result containing the pole ID on success
+</ResponseField>
+
+---
+
+### SetPoleTilt
+
+```cpp
+EditResult<ObjectId> SetPoleTilt(
+  ObjectId pole_id,
+  double tilt_x_deg,
+  double tilt_y_deg
+)
+```
+
+Sets the tilt angles for a pole.
+
+<ParamField path="pole_id" type="ObjectId" required>
+  ID of the pole to tilt
+</ParamField>
+
+<ParamField path="tilt_x_deg" type="double" required>
+  Tilt around X axis in degrees
+</ParamField>
+
+<ParamField path="tilt_y_deg" type="double" required>
+  Tilt around Y axis in degrees
+</ParamField>
+
+<ResponseField name="EditResult<ObjectId>" type="EditResult<ObjectId>">
+  Result containing the pole ID on success
+</ResponseField>
+
+---
+
+### SetAllPoleTilt
+
+```cpp
+EditResult<bool> SetAllPoleTilt(
+  double tilt_x_deg,
+  double tilt_y_deg
+)
+```
+
+Applies tilt to all poles in the network.
+
+<ParamField path="tilt_x_deg" type="double" required>
+  Tilt around X axis in degrees
+</ParamField>
+
+<ParamField path="tilt_y_deg" type="double" required>
+  Tilt around Y axis in degrees
+</ParamField>
+
+<ResponseField name="EditResult<bool>" type="EditResult<bool>">
+  Result with true on success
+</ResponseField>
+
+---
+
+### MovePort
+
+```cpp
+EditResult<ObjectId> MovePort(
+  ObjectId port_id,
+  const Vec3d& new_world_position
+)
+```
+
+Moves a port to a new world-space position.
+
+<ParamField path="port_id" type="ObjectId" required>
+  ID of the port to move
+</ParamField>
+
+<ParamField path="new_world_position" type="const Vec3d&" required>
+  New world-space position
+</ParamField>
+
+<ResponseField name="EditResult<ObjectId>" type="EditResult<ObjectId>">
+  Result containing the port ID on success
+</ResponseField>
+
+---
+
+### SetPortWorldPositionManual
+
+```cpp
+EditResult<ObjectId> SetPortWorldPositionManual(
+  ObjectId port_id,
+  const Vec3d& new_world_position
+)
+```
+
+Sets port position to manual mode and moves it.
+
+<ParamField path="port_id" type="ObjectId" required>
+  ID of the port
+</ParamField>
+
+<ParamField path="new_world_position" type="const Vec3d&" required>
+  New world-space position
+</ParamField>
+
+<ResponseField name="EditResult<ObjectId>" type="EditResult<ObjectId>">
+  Result containing the port ID on success
+</ResponseField>
+
+---
+
+### ResetPortPositionToAuto
+
+```cpp
+EditResult<ObjectId> ResetPortPositionToAuto(
+  ObjectId port_id
+)
+```
+
+Resets port to automatic positioning based on pole template.
+
+<ParamField path="port_id" type="ObjectId" required>
+  ID of the port to reset
+</ParamField>
+
+<ResponseField name="EditResult<ObjectId>" type="EditResult<ObjectId>">
+  Result containing the port ID on success
+</ResponseField>
+
+---
+
+### MoveAnchor
+
+```cpp
+EditResult<ObjectId> MoveAnchor(
+  ObjectId anchor_id,
+  const Vec3d& new_world_position
+)
+```
+
+Moves an anchor to a new world-space position.
+
+<ParamField path="anchor_id" type="ObjectId" required>
+  ID of the anchor to move
+</ParamField>
+
+<ParamField path="new_world_position" type="const Vec3d&" required>
+  New world-space position
+</ParamField>
+
+<ResponseField name="EditResult<ObjectId>" type="EditResult<ObjectId>">
+  Result containing the anchor ID on success
+</ResponseField>
+
+---
+
+### DeleteSpan
+
+```cpp
+EditResult<ObjectId> DeleteSpan(
+  ObjectId span_id
+)
+```
+
+Deletes a span from the network.
+
+<ParamField path="span_id" type="ObjectId" required>
+  ID of the span to delete
+</ParamField>
+
+<ResponseField name="EditResult<ObjectId>" type="EditResult<ObjectId>">
+  Result containing the deleted span ID on success
+</ResponseField>
+
+---
+
+### SplitSpan
+
+```cpp
+EditResult<SplitSpanResult> SplitSpan(
+  ObjectId span_id,
+  double t
+)
+```
+
+Splits a span at parametric position t, creating a new pole and two spans.
+
+<ParamField path="span_id" type="ObjectId" required>
+  ID of the span to split
+</ParamField>
+
+<ParamField path="t" type="double" required>
+  Parametric position (0.0 to 1.0) where to split
+</ParamField>
+
+<ResponseField name="EditResult<SplitSpanResult>" type="EditResult<SplitSpanResult>">
+  Result containing IDs of the original span, new port, and two new spans
+</ResponseField>
+
+**SplitSpanResult structure:**
+
+```cpp
+struct SplitSpanResult {
+  ObjectId old_span_id = kInvalidObjectId;
+  ObjectId new_port_id = kInvalidObjectId;
+  ObjectId new_span_a_id = kInvalidObjectId;
+  ObjectId new_span_b_id = kInvalidObjectId;
+};
+```
+
+---
+
+### ApplyPoleType
+
+```cpp
+EditResult<ObjectId> ApplyPoleType(
+  ObjectId pole_id,
+  PoleTypeId pole_type_id
+)
+```
+
+Applies a pole type template to a pole.
+
+<ParamField path="pole_id" type="ObjectId" required>
+  ID of the pole
+</ParamField>
+
+<ParamField path="pole_type_id" type="PoleTypeId" required>
+  ID of the pole type template to apply
+</ParamField>
+
+<ResponseField name="EditResult<ObjectId>" type="EditResult<ObjectId>">
+  Result containing the pole ID on success
+</ResponseField>
+
+---
+
+### SetPolePlacementMode
+
+```cpp
+EditResult<ObjectId> SetPolePlacementMode(
+  ObjectId pole_id,
+  PlacementMode mode
+)
+```
+
+Changes a pole's placement mode between auto and manual.
+
+<ParamField path="pole_id" type="ObjectId" required>
+  ID of the pole
+</ParamField>
+
+<ParamField path="mode" type="PlacementMode" required>
+  New placement mode (kAuto or kManual)
+</ParamField>
+
+<ResponseField name="EditResult<ObjectId>" type="EditResult<ObjectId>">
+  Result containing the pole ID on success
+</ResponseField>
+
+---
+
+### SetPoleFlip180
+
+```cpp
+EditResult<ObjectId> SetPoleFlip180(
+  ObjectId pole_id,
+  bool flip_180
+)
+```
+
+Flips a pole 180 degrees around its vertical axis.
+
+<ParamField path="pole_id" type="ObjectId" required>
+  ID of the pole
+</ParamField>
+
+<ParamField path="flip_180" type="bool" required>
+  Whether to flip the pole 180 degrees
+</ParamField>
+
+<ResponseField name="EditResult<ObjectId>" type="EditResult<ObjectId>">
+  Result containing the pole ID on success
+</ResponseField>
+
+---
+
+## High-Level Connection Methods
+
+### AddConnectionByPole
+
+```cpp
+EditResult<AddConnectionByPoleResult> AddConnectionByPole(
+  ObjectId pole_a_id,
+  ObjectId pole_b_id,
+  ConnectionCategory category,
+  const AddConnectionByPoleOptions& options = {}
+)
+```
+
+Creates a span connection between two poles using automatic port allocation.
+
+<ParamField path="pole_a_id" type="ObjectId" required>
+  Source pole ID
+</ParamField>
+
+<ParamField path="pole_b_id" type="ObjectId" required>
+  Target pole ID
+</ParamField>
+
+<ParamField path="category" type="ConnectionCategory" required>
+  Connection category (kHighVoltage, kLowVoltage, kCommunication, kOptical, kDrop)
+</ParamField>
+
+<ParamField path="options" type="const AddConnectionByPoleOptions&" default="{}">
+  Additional options for connection creation
+</ParamField>
+
+<ResponseField name="EditResult<AddConnectionByPoleResult>" type="EditResult<AddConnectionByPoleResult>">
+  Result containing span ID, port IDs, and slot IDs
+</ResponseField>
+
+**AddConnectionByPoleOptions structure:**
+
+```cpp
+struct AddConnectionByPoleOptions {
+  SpanKind span_kind = SpanKind::kDistribution;
+  SpanLayer span_layer = SpanLayer::kUnknown;
+  ObjectId bundle_id = kInvalidObjectId;
+  BundleKind bundle_template_id = BundleKind::kLowVoltage;
+  bool use_bundle_template = false;
+  bool auto_create_bundle = true;
+  bool allow_generate_port = true;
+  ConnectionContext connection_context = ConnectionContext::kTrunkContinue;
+  PoleContextKind pole_context_a = PoleContextKind::kStraight;
+  PoleContextKind pole_context_b = PoleContextKind::kStraight;
+  double corner_angle_deg_a = 0.0;
+  double corner_angle_deg_b = 0.0;
+  double corner_turn_sign_a = 0.0;
+  double corner_turn_sign_b = 0.0;
+  ObjectId reference_span_id = kInvalidObjectId;
+  std::uint32_t branch_index = 0;
+  ObjectId preferred_port_a_id = kInvalidObjectId;
+  ObjectId preferred_port_b_id = kInvalidObjectId;
+};
+```
+
+**AddConnectionByPoleResult structure:**
+
+```cpp
+struct AddConnectionByPoleResult {
+  ObjectId span_id = kInvalidObjectId;
+  ObjectId port_a_id = kInvalidObjectId;
+  ObjectId port_b_id = kInvalidObjectId;
+  int slot_a_id = -1;
+  int slot_b_id = -1;
+};
+```
+
+---
+
+### AddDropFromPole
+
+```cpp
+EditResult<AddDropResult> AddDropFromPole(
+  ObjectId source_pole_id,
+  const Vec3d& target_world_position,
+  ConnectionCategory category = ConnectionCategory::kDrop
+)
+```
+
+Creates a drop connection from a pole to a target position.
+
+<ParamField path="source_pole_id" type="ObjectId" required>
+  Source pole ID
+</ParamField>
+
+<ParamField path="target_world_position" type="const Vec3d&" required>
+  World position of the drop target
+</ParamField>
+
+<ParamField path="category" type="ConnectionCategory" default="ConnectionCategory::kDrop">
+  Connection category
+</ParamField>
+
+<ResponseField name="EditResult<AddDropResult>" type="EditResult<AddDropResult>">
+  Result containing span and port IDs
+</ResponseField>
+
+**AddDropResult structure:**
+
+```cpp
+struct AddDropResult {
+  ObjectId span_id = kInvalidObjectId;
+  ObjectId source_port_id = kInvalidObjectId;
+  ObjectId target_port_id = kInvalidObjectId;
+  ObjectId split_port_id = kInvalidObjectId;
+};
+```
+
+---
+
+### AddDropFromSpan
+
+```cpp
+EditResult<AddDropResult> AddDropFromSpan(
+  ObjectId source_span_id,
+  double t,
+  const Vec3d& target_world_position,
+  ConnectionCategory category = ConnectionCategory::kDrop
+)
+```
+
+Creates a drop connection from a point on a span to a target position.
+
+<ParamField path="source_span_id" type="ObjectId" required>
+  Source span ID
+</ParamField>
+
+<ParamField path="t" type="double" required>
+  Parametric position on span (0.0 to 1.0)
+</ParamField>
+
+<ParamField path="target_world_position" type="const Vec3d&" required>
+  World position of the drop target
+</ParamField>
+
+<ParamField path="category" type="ConnectionCategory" default="ConnectionCategory::kDrop">
+  Connection category
+</ParamField>
+
+<ResponseField name="EditResult<AddDropResult>" type="EditResult<AddDropResult>">
+  Result containing span and port IDs, including split port if created
+</ResponseField>
+
+---
+
+## Generation Methods
+
+### GeneratePolesAlongRoad
+
+```cpp
+EditResult<std::vector<ObjectId>> GeneratePolesAlongRoad(
+  const RoadSegment& road,
+  double interval,
+  PoleTypeId pole_type_id
+)
+```
+
+Generates poles at regular intervals along a road path.
+
+<ParamField path="road" type="const RoadSegment&" required>
+  Road segment defining the path
+</ParamField>
+
+<ParamField path="interval" type="double" required>
+  Spacing between poles in meters
+</ParamField>
+
+<ParamField path="pole_type_id" type="PoleTypeId" required>
+  Pole type template to use
+</ParamField>
+
+<ResponseField name="EditResult<std::vector<ObjectId>>" type="EditResult<std::vector<ObjectId>>">
+  Result containing vector of generated pole IDs
+</ResponseField>
+
+---
+
+### GenerateSpansBetweenPoles
+
+```cpp
+EditResult<std::vector<ObjectId>> GenerateSpansBetweenPoles(
+  const std::vector<ObjectId>& poles,
+  ConnectionCategory category
+)
+```
+
+Generates spans connecting a sequence of poles.
+
+<ParamField path="poles" type="const std::vector<ObjectId>&" required>
+  Ordered list of pole IDs to connect
+</ParamField>
+
+<ParamField path="category" type="ConnectionCategory" required>
+  Connection category for the spans
+</ParamField>
+
+<ResponseField name="EditResult<std::vector<ObjectId>>" type="EditResult<std::vector<ObjectId>>">
+  Result containing vector of generated span IDs
+</ResponseField>
+
+---
+
+### GenerateSimpleLine
+
+```cpp
+EditResult<GenerateSimpleLineResult> GenerateSimpleLine(
+  const RoadSegment& road,
+  double interval,
+  PoleTypeId pole_type_id,
+  ConnectionCategory category
+)
+```
+
+Generates a complete simple line with poles and spans.
+
+<ParamField path="road" type="const RoadSegment&" required>
+  Road segment defining the path
+</ParamField>
+
+<ParamField path="interval" type="double" required>
+  Spacing between poles in meters
+</ParamField>
+
+<ParamField path="pole_type_id" type="PoleTypeId" required>
+  Pole type template to use
+</ParamField>
+
+<ParamField path="category" type="ConnectionCategory" required>
+  Connection category
+</ParamField>
+
+<ResponseField name="EditResult<GenerateSimpleLineResult>" type="EditResult<GenerateSimpleLineResult>">
+  Result containing pole IDs, span IDs, and generation session ID
+</ResponseField>
+
+**GenerateSimpleLineResult structure:**
+
+```cpp
+struct GenerateSimpleLineResult {
+  std::vector<ObjectId> pole_ids{};
+  std::vector<ObjectId> span_ids{};
+  std::uint64_t generation_session_id = 0;
+};
+```
+
+---
+
+### GenerateSimpleLineFromPoints
+
+```cpp
+EditResult<GenerateSimpleLineResult> GenerateSimpleLineFromPoints(
+  const RoadSegment& road,
+  PoleTypeId pole_type_id,
+  ConnectionCategory category
+)
+```
+
+Generates poles at exact points defined in the road segment.
+
+<ParamField path="road" type="const RoadSegment&" required>
+  Road segment with explicit point list
+</ParamField>
+
+<ParamField path="pole_type_id" type="PoleTypeId" required>
+  Pole type template to use
+</ParamField>
+
+<ParamField path="category" type="ConnectionCategory" required>
+  Connection category
+</ParamField>
+
+<ResponseField name="EditResult<GenerateSimpleLineResult>" type="EditResult<GenerateSimpleLineResult>">
+  Result containing pole IDs, span IDs, and generation session ID
+</ResponseField>
+
+---
+
+### GenerateGroupedLine
+
+```cpp
+[[deprecated("Use GenerateFromBackboneSpec instead")]]
+EditResult<GenerateGroupedLineResult> GenerateGroupedLine(
+  const GenerateGroupedLineOptions& options
+)
+```
+
+**Deprecated.** Use `GenerateFromBackboneSpec` for new code.
+
+---
+
+### GenerateFromBackboneSpec
+
+```cpp
+EditResult<GenerateBundleFromPathResult> GenerateFromBackboneSpec(
+  const BackboneSpec& spec
+)
+```
+
+Canonical API for generating utility lines from backbone specifications.
+
+<ParamField path="spec" type="const BackboneSpec&" required>
+  Backbone specification with path, pole types, and conductor groups
+</ParamField>
+
+<ResponseField name="EditResult<GenerateBundleFromPathResult>" type="EditResult<GenerateBundleFromPathResult>">
+  Result containing bundle IDs, span IDs, and pole IDs
+</ResponseField>
+
+**GenerateBundleFromPathResult structure:**
+
+```cpp
+struct GenerateBundleFromPathResult {
+  ObjectId bundle_id = kInvalidObjectId;
+  std::vector<ObjectId> bundle_ids{};
+  std::vector<ObjectId> generated_span_ids{};
+  std::vector<ObjectId> generated_pole_ids{};
+};
+```
+
+---
+
+### RegenerateSessionAutoParts
+
+```cpp
+EditResult<GenerateBundleFromPathResult> RegenerateSessionAutoParts(
+  std::uint64_t generation_session_id,
+  const BackboneSpec& spec
+)
+```
+
+Regenerates auto-placed parts from a previous generation session.
+
+<ParamField path="generation_session_id" type="std::uint64_t" required>
+  ID of the generation session to regenerate
+</ParamField>
+
+<ParamField path="spec" type="const BackboneSpec&" required>
+  Updated backbone specification
+</ParamField>
+
+<ResponseField name="EditResult<GenerateBundleFromPathResult>" type="EditResult<GenerateBundleFromPathResult>">
+  Result containing regenerated entity IDs
+</ResponseField>
+
+---
+
+## Settings Methods
+
+### UpdateGeometrySettings
+
+```cpp
+EditResult<bool> UpdateGeometrySettings(
+  const GeometrySettings& settings,
+  bool mark_all_spans_dirty = true
+)
+```
+
+Updates geometry generation settings.
+
+<ParamField path="settings" type="const GeometrySettings&" required>
+  New geometry settings
+</ParamField>
+
+<ParamField path="mark_all_spans_dirty" type="bool" default="true">
+  Whether to mark all spans for recalculation
+</ParamField>
+
+<ResponseField name="EditResult<bool>" type="EditResult<bool>">
+  Result with true on success
+</ResponseField>
+
+**GeometrySettings structure:**
+
+```cpp
+struct GeometrySettings {
+  int curve_samples = 8;
+  bool sag_enabled = false;
+  double sag_factor = 0.03;
+  double pole_clearance_m = 0.05;
+};
+```
+
+---
+
+### UpdateLayoutSettings
+
+```cpp
+EditResult<bool> UpdateLayoutSettings(
+  const LayoutSettings& settings
+)
+```
+
+Updates automatic layout settings.
+
+<ParamField path="settings" type="const LayoutSettings&" required>
+  New layout settings
+</ParamField>
+
+<ResponseField name="EditResult<bool>" type="EditResult<bool>">
+  Result with true on success
+</ResponseField>
+
+**LayoutSettings structure:**
+
+```cpp
+struct LayoutSettings {
+  bool angle_correction_enabled = true;
+  double corner_threshold_deg = 12.0;
+  double min_side_scale = 1.0;
+  double max_side_scale = 1.8;
+};
+```
+
+---
+
+### UpdateVisualSettings
+
+```cpp
+EditResult<bool> UpdateVisualSettings(
+  const VisualSettings& settings,
+  bool mark_all_spans_dirty = true
+)
+```
+
+Updates visual rendering settings.
+
+<ParamField path="settings" type="const VisualSettings&" required>
+  New visual settings
+</ParamField>
+
+<ParamField path="mark_all_spans_dirty" type="bool" default="true">
+  Whether to mark all spans for recalculation
+</ParamField>
+
+<ResponseField name="EditResult<bool>" type="EditResult<bool>">
+  Result with true on success
+</ResponseField>
+
+**VisualSettings structure:**
+
+```cpp
+struct VisualSettings {
+  bool enable_support_structures = true;
+  bool enable_insulators = true;
+  double support_center_threshold_m = 0.03;
+  double support_arm_extra_m = 0.20;
+  double insulator_radius_m = 0.07;
+  double insulator_length_m = 0.16;
+};
+```
+
+---
+
+### UpdateAllBundleVisualSettings
+
+```cpp
+EditResult<bool> UpdateAllBundleVisualSettings(
+  double sag_ratio,
+  double wire_radius_m,
+  bool use_reference_length,
+  bool mark_all_spans_dirty = true
+)
+```
+
+Updates visual settings for all bundles.
+
+<ParamField path="sag_ratio" type="double" required>
+  Sag ratio for wire catenary
+</ParamField>
+
+<ParamField path="wire_radius_m" type="double" required>
+  Wire radius in meters
+</ParamField>
+
+<ParamField path="use_reference_length" type="bool" required>
+  Whether to use reference length for sag calculation
+</ParamField>
+
+<ParamField path="mark_all_spans_dirty" type="bool" default="true">
+  Whether to mark all spans for recalculation
+</ParamField>
+
+<ResponseField name="EditResult<bool>" type="EditResult<bool>">
+  Result with true on success
+</ResponseField>
+
+---
+
+### ResetAllSpanReferenceLengths
+
+```cpp
+EditResult<bool> ResetAllSpanReferenceLengths(
+  bool mark_all_spans_dirty = true
+)
+```
+
+Resets reference lengths for all spans.
+
+<ParamField path="mark_all_spans_dirty" type="bool" default="true">
+  Whether to mark all spans for recalculation
+</ParamField>
+
+<ResponseField name="EditResult<bool>" type="EditResult<bool>">
+  Result with true on success
+</ResponseField>
+
+---
+
+## Query Methods
+
+### GetPoleDetail
+
+```cpp
+PoleDetailInfo GetPoleDetail(ObjectId pole_id) const
+```
+
+Returns detailed information about a pole.
+
+<ParamField path="pole_id" type="ObjectId" required>
+  ID of the pole to query
+</ParamField>
+
+<ResponseField name="PoleDetailInfo" type="PoleDetailInfo">
+  Structure containing pole pointer, pole type definition, and owned ports/anchors
+</ResponseField>
+
+**PoleDetailInfo structure:**
+
+```cpp
+struct PoleDetailInfo {
+  const Pole* pole = nullptr;
+  const PoleTypeDefinition* pole_type = nullptr;
+  std::vector<const Port*> owned_ports{};
+  std::vector<const Anchor*> owned_anchors{};
+};
+```
+
+---
+
+### GetSpansByBundle
+
+```cpp
+std::vector<ObjectId> GetSpansByBundle(ObjectId bundle_id) const
+```
+
+Returns all span IDs using a specific bundle.
+
+<ParamField path="bundle_id" type="ObjectId" required>
+  ID of the bundle to query
+</ParamField>
+
+<ResponseField name="std::vector<ObjectId>" type="std::vector<ObjectId>">
+  Vector of span IDs
+</ResponseField>
+
+---
+
+### BuildBackboneResult
+
+```cpp
+BackboneResult BuildBackboneResult() const
+```
+
+Builds a complete backbone topology result.
+
+<ResponseField name="BackboneResult" type="BackboneResult">
+  Backbone topology structure
+</ResponseField>
+
+---
+
+### BuildBackboneEdges
+
+```cpp
+std::vector<BackboneEdge> BuildBackboneEdges() const
+```
+
+Returns all backbone edges in the network.
+
+<ResponseField name="std::vector<BackboneEdge>" type="std::vector<BackboneEdge>">
+  Vector of backbone edges
+</ResponseField>
+
+---
+
+### FindBackboneRoute
+
+```cpp
+std::vector<ObjectId> FindBackboneRoute(
+  ObjectId start_node_id,
+  ObjectId end_node_id
+) const
+```
+
+Finds a route through the backbone network.
+
+<ParamField path="start_node_id" type="ObjectId" required>
+  Starting node ID
+</ParamField>
+
+<ParamField path="end_node_id" type="ObjectId" required>
+  Ending node ID
+</ParamField>
+
+<ResponseField name="std::vector<ObjectId>" type="std::vector<ObjectId>">
+  Ordered vector of node IDs forming the route
+</ResponseField>
+
+---
+
+### find_curve_cache
+
+```cpp
+const CurveCacheEntry* find_curve_cache(ObjectId span_id) const
+```
+
+Returns cached curve data for a span.
+
+<ParamField path="span_id" type="ObjectId" required>
+  Span ID to query
+</ParamField>
+
+<ResponseField name="const CurveCacheEntry*" type="const CurveCacheEntry*">
+  Pointer to cache entry, or nullptr if not cached
+</ResponseField>
+
+---
+
+### find_bounds_cache
+
+```cpp
+const BoundsCacheEntry* find_bounds_cache(ObjectId span_id) const
+```
+
+Returns cached bounds data for a span.
+
+<ParamField path="span_id" type="ObjectId" required>
+  Span ID to query
+</ParamField>
+
+<ResponseField name="const BoundsCacheEntry*" type="const BoundsCacheEntry*">
+  Pointer to cache entry, or nullptr if not cached
+</ResponseField>
+
+---
+
+### find_span_visual_cache
+
+```cpp
+const SpanVisualCacheEntry* find_span_visual_cache(ObjectId span_id) const
+```
+
+Returns cached visual data for a span.
+
+<ParamField path="span_id" type="ObjectId" required>
+  Span ID to query
+</ParamField>
+
+<ResponseField name="const SpanVisualCacheEntry*" type="const SpanVisualCacheEntry*">
+  Pointer to cache entry, or nullptr if not cached
+</ResponseField>
+
+---
+
+## Validation and Commit
+
+### ValidateFast
+
+```cpp
+ValidationResult ValidateFast() const
+```
+
+Runs fast validation checks on the current state.
+
+<ResponseField name="ValidationResult" type="ValidationResult">
+  Validation result with list of issues
+</ResponseField>
+
+**ValidationResult structure:**
+
+```cpp
+struct ValidationResult {
+  std::vector<ValidationIssue> issues;
+  
+  bool has_errors() const;
+  bool ok() const { return !has_errors(); }
+};
+```
+
+---
+
+### Commit
+
+```cpp
+CommitResult Commit(const CommitOptions& options = {})
+```
+
+Commits pending changes and runs recalculation and validation.
+
+<ParamField path="options" type="const CommitOptions&" default="{}">
+  Commit options controlling recalc and validation
+</ParamField>
+
+<ResponseField name="CommitResult" type="CommitResult">
+  Result containing recalculation stats and validation results
+</ResponseField>
+
+**CommitOptions structure:**
+
+```cpp
+struct CommitOptions {
+  bool run_recalc = true;
+  bool run_validate_fast = true;
+  bool run_validate = false;
+};
+```
+
+**CommitResult structure:**
+
+```cpp
+struct CommitResult {
+  RecalcStats recalc_stats{};
+  ValidationResult validation{};
+};
+```
+
+**RecalcStats structure:**
+
+```cpp
+struct RecalcStats {
+  std::size_t topology_processed = 0;
+  std::size_t geometry_processed = 0;
+  std::size_t bounds_processed = 0;
+  std::size_t render_processed = 0;
+  std::size_t raycast_processed = 0;
+  
+  std::size_t total_processed() const;
+};
+```
+
+---
+
+## Utility Methods
+
+### next_id
+
+```cpp
+ObjectId next_id() const
+```
+
+Peeks at the next ObjectId that will be generated.
+
+<ResponseField name="ObjectId" type="ObjectId">
+  Next available ObjectId
+</ResponseField>
+
+---
+
+### clear_path_direction_debug_records
+
+```cpp
+void clear_path_direction_debug_records()
+```
+
+Clears cached path direction evaluation debug records.
+
+---
+
+### clear_slot_selection_debug_records
+
+```cpp
+void clear_slot_selection_debug_records()
+```
+
+Clears cached slot selection debug records.
+
+---
+
+### view
+
+```cpp
+CoreView view() const
+```
+
+Returns a read-only view of the core state.
+
+<ResponseField name="CoreView" type="CoreView">
+  Read-only view accessor
+</ResponseField>
+
+See [CoreView](/api/core-view) for details.
+
+---
+
+## Usage Example
+
+```cpp
+#include "wire/core/core_state.hpp"
+
+using namespace wire::core;
+
+CoreState state;
+
+// Create two poles
+auto pole_a = state.AddPole(Transformd{{0, 0, 0}}, 12.0);
+auto pole_b = state.AddPole(Transformd{{30, 0, 0}}, 12.0);
+
+if (!pole_a.ok || !pole_b.ok) {
+  // Handle errors
+  return;
+}
+
+// Connect poles with a span
+auto conn = state.AddConnectionByPole(
+  pole_a.value,
+  pole_b.value,
+  ConnectionCategory::kLowVoltage
+);
+
+if (!conn.ok) {
+  std::cerr << "Connection failed: " << conn.error << std::endl;
+  return;
+}
+
+// Commit changes and run validation
+CommitOptions commit_opts;
+commit_opts.run_recalc = true;
+commit_opts.run_validate_fast = true;
+
+auto result = state.Commit(commit_opts);
+
+if (!result.validation.ok()) {
+  for (const auto& issue : result.validation.issues) {
+    std::cerr << "Validation: " << issue.message << std::endl;
+  }
+}
+
+std::cout << "Recalculated " << result.recalc_stats.total_processed() 
+          << " items" << std::endl;
+```
+
+## See Also
+
+- [CoreView](/api/core-view) - Read-only state accessor
+- [EditResult](/api/edit-result) - Result pattern for mutations
+- [Dirty Tracking](/concepts/dirty-tracking) - Understanding dirty bits and recalculation
+- [Incremental Recalc](/guides/incremental-recalc) - Working with the recalc system

@@ -1,0 +1,254 @@
+---
+title: 'Template Types'
+description: 'Pole type definitions, slot templates, and bundle configuration templates'
+---
+
+## Overview
+
+Template types define reusable configurations for poles, ports, anchors, and bundles. These templates are used during entity generation and auto-placement workflows.
+
+---
+
+## PoleTypeDefinition
+
+Defines a complete pole type with all available port and anchor slots.
+
+**Definition:** `entities.hpp:174-180`
+
+<ResponseField name="id" type="PoleTypeId" default="kInvalidPoleTypeId">
+  Unique identifier for this pole type
+</ResponseField>
+
+<ResponseField name="name" type="std::string" default="">
+  Human-readable name for the pole type (e.g., "Standard Wood 40ft")
+</ResponseField>
+
+<ResponseField name="description" type="std::string" default="">
+  Detailed description of the pole type and its intended use
+</ResponseField>
+
+<ResponseField name="port_slots" type="std::vector<PortSlotTemplate>" default="{}">
+  List of available port slot templates for this pole type
+</ResponseField>
+
+<ResponseField name="anchor_slots" type="std::vector<AnchorSlotTemplate>" default="{}">
+  List of available anchor slot templates for guy wires and supports
+</ResponseField>
+
+### Example
+
+```cpp
+wire::core::PoleTypeDefinition pole_type;
+pole_type.id = 1;
+pole_type.name = "Standard Distribution Pole";
+pole_type.description = "40ft wooden pole for primary distribution";
+
+// Add port slots
+wire::core::PortSlotTemplate high_voltage_slot;
+high_voltage_slot.slot_id = 0;
+high_voltage_slot.category = wire::core::ConnectionCategory::kHighVoltage;
+high_voltage_slot.local_position = {0.0, 0.0, 10.0};  // 10m high
+high_voltage_slot.layer = 1;
+pole_type.port_slots.push_back(high_voltage_slot);
+
+// Add anchor slots
+wire::core::AnchorSlotTemplate guy_wire_slot;
+guy_wire_slot.slot_id = 0;
+guy_wire_slot.usage = wire::core::AnchorSupportKind::kGround;
+guy_wire_slot.local_position = {0.0, 0.0, 8.0};
+pole_type.anchor_slots.push_back(guy_wire_slot);
+```
+
+---
+
+## PortSlotTemplate
+
+Defines a potential port connection location on a pole type. This is a definition-layer template, not a runtime port instance.
+
+**Definition:** `entities.hpp:153-164`
+
+<ResponseField name="slot_id" type="int" default="0">
+  Unique identifier for this slot within the pole type
+</ResponseField>
+
+<ResponseField name="category" type="ConnectionCategory" default="kLowVoltage">
+  Electrical/communication category that can use this slot
+</ResponseField>
+
+<ResponseField name="local_position" type="Vec3d" default="{0, 0, 0}">
+  Position of the slot in the pole's local coordinate space (meters)
+</ResponseField>
+
+<ResponseField name="local_direction" type="Frame3d" default="default frame">
+  Orientation frame defining the connection direction from this slot
+</ResponseField>
+
+<ResponseField name="layer" type="int" default="1">
+  Vertical layer index for slot ordering (higher = higher on pole)
+</ResponseField>
+
+<ResponseField name="side" type="SlotSide" default="kCenter">
+  Lateral position (left, center, right) relative to pole orientation
+</ResponseField>
+
+<ResponseField name="role" type="SlotRole" default="kNeutral">
+  Preferred role for auto-placement (trunk, branch, drop, or neutral)
+</ResponseField>
+
+<ResponseField name="priority" type="int" default="0">
+  Selection priority when multiple slots could satisfy a connection (higher = preferred)
+</ResponseField>
+
+<ResponseField name="allow_multiple" type="bool" default="false">
+  If true, this slot can be used by multiple spans simultaneously
+</ResponseField>
+
+<ResponseField name="enabled" type="bool" default="true">
+  If false, this slot is temporarily disabled and will not be used
+</ResponseField>
+
+### Usage
+
+PortSlotTemplate defines where ports can be placed during pole instantiation:
+
+```cpp
+wire::core::PortSlotTemplate slot;
+slot.slot_id = 1;
+slot.category = wire::core::ConnectionCategory::kLowVoltage;
+slot.local_position = {0.0, -0.5, 8.0};  // 8m high, offset left
+slot.layer = 2;
+slot.side = wire::core::SlotSide::kLeft;
+slot.role = wire::core::SlotRole::kBranchPreferred;
+slot.priority = 10;
+slot.allow_multiple = false;
+slot.enabled = true;
+```
+
+---
+
+## AnchorSlotTemplate
+
+Defines a potential anchor attachment point for guy wires or other support structures.
+
+**Definition:** `entities.hpp:166-172`
+
+<ResponseField name="slot_id" type="int" default="0">
+  Unique identifier for this anchor slot within the pole type
+</ResponseField>
+
+<ResponseField name="usage" type="AnchorSupportKind" default="kGeneric">
+  Type of anchor support this slot is designed for
+</ResponseField>
+
+<ResponseField name="local_position" type="Vec3d" default="{0, 0, 0}">
+  Position of the anchor point in the pole's local coordinate space (meters)
+</ResponseField>
+
+<ResponseField name="priority" type="int" default="0">
+  Selection priority when multiple anchor slots are available (higher = preferred)
+</ResponseField>
+
+<ResponseField name="enabled" type="bool" default="true">
+  If false, this anchor slot is temporarily disabled and will not be used
+</ResponseField>
+
+### Example
+
+```cpp
+wire::core::AnchorSlotTemplate anchor;
+anchor.slot_id = 0;
+anchor.usage = wire::core::AnchorSupportKind::kGround;
+anchor.local_position = {0.0, 0.0, 7.5};  // 7.5m high
+anchor.priority = 5;
+anchor.enabled = true;
+```
+
+---
+
+## BundleTemplate
+
+Defines a reusable bundle configuration for cable and conductor groups.
+
+**Definition:** `workflow_types.hpp:44-59`
+
+<ResponseField name="id" type="BundleKind" default="kLowVoltage">
+  Unique identifier for this bundle template (also defines the kind)
+</ResponseField>
+
+<ResponseField name="name" type="std::string" default="">
+  Human-readable name for the bundle template
+</ResponseField>
+
+<ResponseField name="category" type="ConnectionCategory" default="kLowVoltage">
+  Connection category for this bundle type
+</ResponseField>
+
+<ResponseField name="default_layer" type="SpanLayer" default="kLowVoltage">
+  Default span layer for connections using this bundle
+</ResponseField>
+
+<ResponseField name="is_electric" type="bool" default="false">
+  If true, this bundle carries electrical power (affects safety rules)
+</ResponseField>
+
+<ResponseField name="preserve_conductor_identity" type="bool" default="false">
+  If true, conductor order/identity is strictly maintained by workflow policy
+</ResponseField>
+
+<ResponseField name="count_rule" type="BundleCountRuleKind" default="kFixed">
+  Determines if conductor count is fixed or variable within a range
+</ResponseField>
+
+<ResponseField name="fixed_count" type="int" default="1">
+  Number of conductors if count_rule is kFixed
+</ResponseField>
+
+<ResponseField name="min_count" type="int" default="1">
+  Minimum number of conductors if count_rule is kRange
+</ResponseField>
+
+<ResponseField name="max_count" type="int" default="1">
+  Maximum number of conductors if count_rule is kRange
+</ResponseField>
+
+<ResponseField name="default_count" type="int" default="1">
+  Default number of conductors when creating a new bundle instance
+</ResponseField>
+
+<ResponseField name="default_spacing_m" type="double" default="0.2">
+  Default spacing between conductors in meters
+</ResponseField>
+
+<ResponseField name="allow_mirror" type="bool" default="true">
+  If true, conductor arrangement can be mirrored at corner poles
+</ResponseField>
+
+### Example
+
+```cpp
+wire::core::BundleTemplate three_phase_template;
+three_phase_template.id = wire::core::BundleKind::kHighVoltage;
+three_phase_template.name = "Three-Phase Primary";
+three_phase_template.category = wire::core::ConnectionCategory::kHighVoltage;
+three_phase_template.default_layer = wire::core::SpanLayer::kHighVoltage;
+three_phase_template.is_electric = true;
+three_phase_template.preserve_conductor_identity = true;
+three_phase_template.count_rule = wire::core::BundleCountRuleKind::kFixed;
+three_phase_template.fixed_count = 3;
+three_phase_template.default_spacing_m = 0.6;  // 60cm between phases
+three_phase_template.allow_mirror = false;  // Preserve phase order
+```
+
+### Usage in Workflows
+
+BundleTemplates are referenced when generating backbone networks:
+
+```cpp
+wire::core::BackboneBundleSpec bundle_spec;
+bundle_spec.bundle_template_id = wire::core::BundleKind::kHighVoltage;
+bundle_spec.layer = wire::core::SpanLayer::kHighVoltage;
+bundle_spec.count = 3;  // Only used if template has variable count
+
+wire::core::BackboneSpec backbone;
+backbone.bundles.push_back(bundle_spec);
+```

@@ -1,0 +1,164 @@
+---
+title: VisualCache
+description: Visual detail cache for support structures and insulators
+---
+
+## Overview
+
+The `VisualCache` stores rendering primitives for span visual details like support arms, insulators, and fittings. These are derived from port positions and visual settings, enabling high-fidelity rendering without recomputing geometry.
+
+## VisualPartKind
+
+Enumeration of visual detail types.
+
+### Values
+
+<ResponseField name="kSupportArm" type="0">
+  Support arm extending from pole to conductor attachment point. Represents physical crossarms or brackets.
+</ResponseField>
+
+<ResponseField name="kInsulator" type="1">
+  Insulator connecting conductor to support structure. Prevents electrical contact with grounded poles.
+</ResponseField>
+
+<ResponseField name="kFitting" type="2">
+  Generic hardware fitting (clamps, connectors, etc.). Used for misc. attachment hardware.
+</ResponseField>
+
+## VisualPart
+
+A single visual primitive (cylinder) for rendering.
+
+### Fields
+
+<ResponseField name="kind" type="VisualPartKind" default="kSupportArm">
+  Type of visual element this part represents.
+</ResponseField>
+
+<ResponseField name="a" type="Vec3d" required>
+  World-space start position of the cylindrical primitive.
+</ResponseField>
+
+<ResponseField name="b" type="Vec3d" required>
+  World-space end position of the cylindrical primitive.
+</ResponseField>
+
+<ResponseField name="radius_m" type="double" default="0.02">
+  Radius of the cylinder in meters. Defaults to 2cm for typical support structures.
+</ResponseField>
+
+## SpanVisualCacheEntry
+
+Represents cached visual details for a single span.
+
+### Fields
+
+<ResponseField name="parts" type="std::vector<VisualPart>" required>
+  Collection of visual primitives to render for this span. Generated based on `VisualSettings` and port positions.
+</ResponseField>
+
+<ResponseField name="source_version" type="std::uint64_t" default="0">
+  Version number from `SpanRuntimeState::render_version` when this entry was last rebuilt. Used to detect stale cache entries.
+</ResponseField>
+
+## VisualCache
+
+Container mapping span IDs to their visual cache entries.
+
+### Fields
+
+<ResponseField name="by_span" type="std::unordered_map<ObjectId, SpanVisualCacheEntry>" required>
+  Map from span `ObjectId` to its cached visual data. Only contains entries for spans that have been processed by the render recalc pipeline.
+</ResponseField>
+
+## Visual Settings
+
+Visual cache generation is controlled by `VisualSettings` (lines 80-87):
+
+- **`enable_support_structures`** - Generate support arms when port position differs from ideal attachment point
+- **`enable_insulators`** - Generate insulator geometry between support and conductor
+- **`support_center_threshold_m`** - Distance threshold (0.03m) for determining if support is needed
+- **`support_arm_extra_m`** - Extra length (0.20m) added to support arms for visual clearance
+- **`insulator_radius_m`** - Radius (0.07m) of insulator cylinders
+- **`insulator_length_m`** - Length (0.16m) of insulator geometry
+
+## Version-Based Invalidation
+
+Visual cache entries are invalidated when:
+- Port positions change (manual moves, pole rotation, layout updates)
+- `VisualSettings` change (enable/disable features, dimensions)
+- Span connectivity changes (rerouting, attachment points)
+
+The system compares `SpanVisualCacheEntry::source_version` against `SpanRuntimeState::render_version`.
+
+## Querying the Cache
+
+Use `CoreState::find_span_visual_cache()` to safely query entries:
+
+```cpp
+const SpanVisualCacheEntry* entry = core_state.find_span_visual_cache(span_id);
+if (entry) {
+  for (const VisualPart& part : entry->parts) {
+    switch (part.kind) {
+      case VisualPartKind::kSupportArm:
+        render_cylinder(part.a, part.b, part.radius_m, metal_material);
+        break;
+      case VisualPartKind::kInsulator:
+        render_cylinder(part.a, part.b, part.radius_m, ceramic_material);
+        break;
+      case VisualPartKind::kFitting:
+        render_cylinder(part.a, part.b, part.radius_m, fitting_material);
+        break;
+    }
+  }
+}
+```
+
+Returns `nullptr` if:
+- Span doesn't exist
+- Visual details haven't been computed yet
+- Cache was invalidated but not yet rebuilt
+
+## Use Cases
+
+### Rendering Support Structures
+```cpp
+void render_span_visuals(ObjectId span_id) {
+  const SpanVisualCacheEntry* visual = core_state.find_span_visual_cache(span_id);
+  if (!visual || visual->parts.empty()) {
+    return; // No visual details for this span
+  }
+  
+  for (const VisualPart& part : visual->parts) {
+    // Render each visual element as a cylinder
+    draw_cylinder(part.a, part.b, part.radius_m, part.kind);
+  }
+}
+```
+
+### Collision Detection
+```cpp
+bool ray_intersects_support_structure(const Ray& ray, ObjectId span_id) {
+  const SpanVisualCacheEntry* visual = core_state.find_span_visual_cache(span_id);
+  if (!visual) return false;
+  
+  for (const VisualPart& part : visual->parts) {
+    if (part.kind == VisualPartKind::kSupportArm) {
+      if (ray_cylinder_test(ray, part.a, part.b, part.radius_m)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+```
+
+## Related Types
+
+- [SpanRuntimeState](/api/cache/runtime-state) - Tracks version numbers for invalidation
+- [VisualSettings](/api/core-state) - Controls visual detail generation
+- [Vec3d](/api/types/geometry-types) - 3D vector type
+
+## Source Reference
+
+Defined in `wire/core/core_state.hpp:58-78`

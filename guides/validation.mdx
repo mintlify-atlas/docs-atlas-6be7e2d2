@@ -1,0 +1,541 @@
+---
+title: Validation System Usage
+description: Use Wire's validation system to detect and diagnose topology errors and connection issues
+---
+
+## Overview
+
+Wire provides a comprehensive validation system that checks network integrity after edits. Validation catches common errors like:
+
+- Missing or invalid entity references
+- Disconnected ports and spans
+- Zero-length spans
+- Topology inconsistencies
+- Index corruption
+
+Validation runs automatically during `Commit()`, but you can also invoke it manually for diagnostic purposes.
+
+## Validation Modes
+
+### Fast Validation
+
+Quick topology checks suitable for interactive editing:
+
+```cpp
+// Standalone fast validation
+ValidationResult result = state.ValidateFast();
+
+if (result.has_errors()) {
+  std::cerr << "Validation errors found:\n";
+  for (const ValidationIssue& issue : result.issues) {
+    std::cerr << "  [" << issue.code << "] " 
+              << issue.message << std::endl;
+  }
+} else {
+  std::cout << "Fast validation passed\n";
+}
+```
+
+**Fast validation checks:**
+- Entity reference validity
+- Port and span connectivity
+- Zero-length span detection
+- Basic index consistency
+
+### Thorough Validation
+
+Deep validation that rebuilds indices and checks for corruption:
+
+```cpp
+// Thorough validation via Commit
+CommitOptions options;
+options.run_validate = true;  // Enable deep validation
+
+CommitResult result = state.Commit(options);
+
+if (!result.validation.ok()) {
+  for (const ValidationIssue& issue : result.validation.issues) {
+    handle_validation_issue(issue);
+  }
+}
+```
+
+**Thorough validation adds:**
+- Full index rebuild and comparison
+- Exhaustive entity relationship checks
+- Orphaned entity detection
+- Bundle consistency validation
+
+<Note>
+Thorough validation is more expensive. Use it for final checks or when debugging corruption, not during interactive editing.
+</Note>
+
+## Validation Result Structure
+
+### ValidationResult
+
+```cpp
+struct ValidationResult {
+  std::vector<ValidationIssue> issues;
+  
+  bool has_errors() const;  // Any error-severity issues?
+  bool ok() const;          // Alias for !has_errors()
+};
+```
+
+### ValidationIssue
+
+```cpp
+struct ValidationIssue {
+  ValidationSeverity severity;  // kError or kWarning
+  std::string code;             // Error code (e.g., "SPAN_INVALID_PORT_A")
+  std::string message;          // Human-readable description
+  ObjectId object_id;           // Associated entity (if applicable)
+};
+```
+
+### Severity Levels
+
+```cpp
+enum class ValidationSeverity : std::uint8_t {
+  kError = 0,    // Critical issue, network is invalid
+  kWarning = 1,  // Non-critical, but potentially problematic
+};
+```
+
+## Common Validation Errors
+
+### Entity Reference Errors
+
+```cpp
+// Example: Span references non-existent port
+ValidationIssue {
+  severity = ValidationSeverity::kError,
+  code = "SPAN_INVALID_PORT_A",
+  message = "Span 12345 references invalid port_a_id 67890",
+  object_id = 12345  // The span with the problem
+}
+```
+
+**Common causes:**
+- Deleted a port but didn't delete connected spans
+- Corrupted ID due to manual memory manipulation
+- Deserialization error
+
+**How to fix:**
+```cpp
+// Delete the invalid span
+state.DeleteSpan(invalid_span_id);
+state.Commit();
+```
+
+### Zero-Length Spans
+
+```cpp
+ValidationIssue {
+  severity = ValidationSeverity::kWarning,
+  code = "SPAN_ZERO_LENGTH",
+  message = "Span 23456 has zero length (ports at same position)",
+  object_id = 23456
+}
+```
+
+**Common causes:**
+- Two poles placed at exact same coordinates
+- Ports manually positioned on top of each other
+
+**How to fix:**
+```cpp
+// Move one of the poles
+Transformd new_transform = /* ... */;
+state.MovePole(pole_id, new_transform);
+state.Commit();
+
+// Or delete the degenerate span
+state.DeleteSpan(span_id);
+state.Commit();
+```
+
+### Index Inconsistencies
+
+```cpp
+ValidationIssue {
+  severity = ValidationSeverity::kError,
+  code = "INDEX_CORRUPTION",
+  message = "Connection index has 3 spans for port 34567, expected 2",
+  object_id = 34567
+}
+```
+
+**Common causes:**
+- Internal bug in Wire (please report!)
+- Memory corruption
+- Concurrent modification without synchronization
+
+**How to fix:**
+This usually indicates a bug. Save your state and report the issue.
+
+## Using Validation in Commit
+
+### Default Commit Behavior
+
+```cpp
+// By default, runs fast validation only
+CommitResult result = state.Commit();
+
+if (result.validation.has_errors()) {
+  // Handle errors
+  for (const auto& issue : result.validation.issues) {
+    if (issue.severity == ValidationSeverity::kError) {
+      log_error(issue);
+    }
+  }
+}
+```
+
+### Customizing Validation
+
+```cpp
+CommitOptions options;
+
+// Disable validation entirely (dangerous!)
+options.run_validate_fast = false;
+options.run_validate = false;
+
+// Fast validation only (default)
+options.run_validate_fast = true;
+options.run_validate = false;
+
+// Both fast and thorough validation
+options.run_validate_fast = true;
+options.run_validate = true;
+
+CommitResult result = state.Commit(options);
+```
+
+### Validation-Only Commit
+
+```cpp
+// Run validation without recalculation
+CommitOptions options;
+options.run_recalc = false;           // Skip dirty processing
+options.run_validate_fast = true;
+options.run_validate = true;          // Deep validation
+
+CommitResult result = state.Commit(options);
+
+// No geometry was recalculated, but validation ran
+if (result.validation.ok()) {
+  std::cout << "Network topology is valid\n";
+}
+```
+
+## Validation Workflow
+
+### Interactive Editing Pattern
+
+<Steps>
+  <Step title="Edit with Fast Validation">
+    ```cpp
+    state.MovePole(pole_id, new_transform);
+    
+    CommitOptions options;
+    options.run_validate_fast = true;  // Quick check
+    options.run_validate = false;
+    
+    CommitResult result = state.Commit(options);
+    
+    if (result.validation.has_errors()) {
+      // Show user-facing error
+      show_error_dialog(result.validation.issues);
+    }
+    ```
+  </Step>
+  
+  <Step title="Accumulate Edits">
+    ```cpp
+    // Multiple edits in quick succession
+    for (const auto& edit : pending_edits) {
+      apply_edit(state, edit);
+    }
+    
+    // Batch commit with fast validation
+    state.Commit();
+    ```
+  </Step>
+  
+  <Step title="Pre-Save Thorough Check">
+    ```cpp
+    // Before saving to disk
+    CommitOptions thorough;
+    thorough.run_validate = true;
+    
+    CommitResult result = state.Commit(thorough);
+    
+    if (!result.validation.ok()) {
+      // Block save until errors are fixed
+      return SaveResult::kValidationFailed;
+    }
+    
+    // Safe to serialize
+    serialize_to_disk(state);
+    ```
+  </Step>
+</Steps>
+
+### Batch Processing Pattern
+
+```cpp
+void ProcessLargeOperation(CoreState& state) {
+  // Phase 1: Edits without validation
+  CommitOptions no_validate;
+  no_validate.run_validate_fast = false;
+  no_validate.run_validate = false;
+  
+  for (int i = 0; i < 1000; ++i) {
+    perform_edit(state, i);
+    state.Commit(no_validate);  // Fast
+  }
+  
+  // Phase 2: Final validation
+  CommitOptions validate;
+  validate.run_validate_fast = true;
+  validate.run_validate = true;
+  
+  CommitResult result = state.Commit(validate);
+  
+  if (!result.validation.ok()) {
+    // Rollback or fix errors
+    handle_batch_errors(result.validation);
+  }
+}
+```
+
+## Diagnostic Validation
+
+### Manual Validation Check
+
+```cpp
+// Check validity without committing
+ValidationResult result = state.ValidateFast();
+
+if (result.ok()) {
+  std::cout << "Network is valid\n";
+} else {
+  std::cout << "Found " << result.issues.size() << " issues\n";
+  
+  for (const auto& issue : result.issues) {
+    std::cout << "  " << issue.code << ": " << issue.message << "\n";
+  }
+}
+```
+
+### Filtering by Severity
+
+```cpp
+ValidationResult result = state.ValidateFast();
+
+std::vector<ValidationIssue> errors;
+std::vector<ValidationIssue> warnings;
+
+for (const auto& issue : result.issues) {
+  if (issue.severity == ValidationSeverity::kError) {
+    errors.push_back(issue);
+  } else {
+    warnings.push_back(issue);
+  }
+}
+
+std::cout << "Errors: " << errors.size() << "\n";
+std::cout << "Warnings: " << warnings.size() << "\n";
+```
+
+### Grouping by Object
+
+```cpp
+ValidationResult result = state.ValidateFast();
+
+std::unordered_map<ObjectId, std::vector<ValidationIssue>> by_object;
+
+for (const auto& issue : result.issues) {
+  if (issue.object_id != kInvalidObjectId) {
+    by_object[issue.object_id].push_back(issue);
+  }
+}
+
+for (const auto& [object_id, issues] : by_object) {
+  std::cout << "Object " << object_id << " has " 
+            << issues.size() << " issues\n";
+}
+```
+
+## Error Code Reference
+
+### Common Error Codes
+
+| Code | Description | Severity |
+|------|-------------|---------|
+| `SPAN_INVALID_PORT_A` | Span references non-existent port_a_id | Error |
+| `SPAN_INVALID_PORT_B` | Span references non-existent port_b_id | Error |
+| `SPAN_ZERO_LENGTH` | Span endpoints at same position | Warning |
+| `PORT_INVALID_OWNER` | Port references non-existent owner_pole_id | Error |
+| `ANCHOR_INVALID_OWNER` | Anchor references non-existent owner_pole_id | Error |
+| `SPAN_INVALID_BUNDLE` | Span references non-existent bundle_id | Error |
+| `INDEX_CORRUPTION` | Connection or relation index mismatch | Error |
+| `ORPHANED_PORT` | Port not referenced by any span | Warning |
+
+### Interpreting Error Messages
+
+```cpp
+for (const auto& issue : result.validation.issues) {
+  switch (hash(issue.code)) {
+    case hash("SPAN_INVALID_PORT_A"):
+    case hash("SPAN_INVALID_PORT_B"):
+      // Span has dangling port reference
+      handle_invalid_span_port(state, issue.object_id);
+      break;
+      
+    case hash("SPAN_ZERO_LENGTH"):
+      // Degenerate span
+      handle_zero_length_span(state, issue.object_id);
+      break;
+      
+    case hash("INDEX_CORRUPTION"):
+      // Internal error - log and report
+      log_critical_error(issue);
+      break;
+      
+    default:
+      log_warning(issue);
+      break;
+  }
+}
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use Fast Validation During Editing">
+    Enable `run_validate_fast` for all commits during interactive editing:
+    
+    ```cpp
+    CommitOptions options;
+    options.run_validate_fast = true;  // Always on
+    state.Commit(options);
+    ```
+  </Accordion>
+  
+  <Accordion title="Thorough Validation Before Serialization">
+    Always run deep validation before saving:
+    
+    ```cpp
+    CommitOptions options;
+    options.run_validate = true;
+    CommitResult result = state.Commit(options);
+    
+    if (result.validation.ok()) {
+      save_to_disk(state);
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Never Ignore Validation Errors">
+    Log all errors, even if you can't fix them immediately:
+    
+    ```cpp
+    if (!result.validation.ok()) {
+      for (const auto& issue : result.validation.issues) {
+        telemetry.log_validation_error(issue);
+      }
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Provide User-Facing Error Messages">
+    Translate validation errors into actionable user guidance:
+    
+    ```cpp
+    for (const auto& issue : result.validation.issues) {
+      if (issue.code == "SPAN_ZERO_LENGTH") {
+        ui.show_warning(
+          "Two poles are at the same location. "
+          "Please move one of them."
+        );
+      }
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Integration Examples
+
+### Unreal Engine Integration
+
+```cpp
+void UWireComponent::ApplyEdits() {
+  // Apply pending edits
+  for (const auto& edit : PendingEdits) {
+    ApplyEdit(CoreState, edit);
+  }
+  PendingEdits.clear();
+  
+  // Commit with validation
+  wire::core::CommitOptions Options;
+  Options.run_validate_fast = true;
+  
+  wire::core::CommitResult Result = CoreState.Commit(Options);
+  
+  if (!Result.validation.ok()) {
+    for (const auto& Issue : Result.validation.issues) {
+      UE_LOG(LogWire, Warning, TEXT("Validation: %s"), 
+             *FString(Issue.message.c_str()));
+    }
+  }
+  
+  // Update render components
+  UpdateRenderData();
+}
+```
+
+### Command-Line Tool
+
+```cpp
+int main(int argc, char** argv) {
+  wire::core::CoreState state = load_from_file(argv[1]);
+  
+  // Run thorough validation
+  wire::core::CommitOptions options;
+  options.run_validate = true;
+  
+  wire::core::CommitResult result = state.Commit(options);
+  
+  if (result.validation.has_errors()) {
+    std::cerr << "Validation failed:\n";
+    for (const auto& issue : result.validation.issues) {
+      std::cerr << "  [" << issue.code << "] " 
+                << issue.message << "\n";
+    }
+    return 1;
+  }
+  
+  std::cout << "Validation passed\n";
+  return 0;
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Incremental Recalc" icon="arrows-rotate" href="/guides/incremental-recalc">
+    Understand how validation integrates with dirty tracking
+  </Card>
+  <Card title="Editing Entities" icon="pen" href="/guides/editing-entities">
+    Learn which edits can cause validation errors
+  </Card>
+  <Card title="Building Networks" icon="diagram-project" href="/guides/building-networks">
+    See validation in the context of network creation
+  </Card>
+  <Card title="Core State API" icon="code" href="/api/core-state">
+    Complete API reference for validation methods
+  </Card>
+</CardGroup>

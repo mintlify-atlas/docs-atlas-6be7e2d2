@@ -1,0 +1,215 @@
+---
+title: Runtime State
+description: Runtime tracking for incremental recalculation and dirty propagation
+---
+
+## Overview
+
+Runtime state structures track version numbers and dirty flags for incremental computation. Each span maintains version counters that trigger cache invalidation when mismatched, and dirty queues batch work across recalc pipelines.
+
+## DirtyBits
+
+Bit flags indicating which recalc pipelines need to process a span.
+
+### Values
+
+<ResponseField name="kNone" type="0">
+  No recalculation needed. Span is fully up-to-date.
+</ResponseField>
+
+<ResponseField name="kTopology" type="1 << 0">
+  Topology changed (connectivity, endpoints). Requires re-resolving span endpoints and updating connection indices.
+</ResponseField>
+
+<ResponseField name="kGeometry" type="1 << 1">
+  Geometry needs rebuild (curve tessellation). Triggered by endpoint moves or `GeometrySettings` changes.
+</ResponseField>
+
+<ResponseField name="kBounds" type="1 << 2">
+  Spatial bounds need rebuild. Always follows geometry changes to maintain consistency.
+</ResponseField>
+
+<ResponseField name="kRender" type="1 << 3">
+  Visual cache needs rebuild (support structures, insulators). Triggered by port position changes or `VisualSettings` updates.
+</ResponseField>
+
+<ResponseField name="kRaycast" type="1 << 4">
+  Raycast acceleration structures need rebuild. Used for selection and spatial queries.
+</ResponseField>
+
+### Operators
+
+DirtyBits supports bitwise operations:
+
+```cpp
+// Combine flags
+DirtyBits dirty = DirtyBits::kGeometry | DirtyBits::kBounds;
+
+// Check if any flag is set
+if (any(dirty_bits, DirtyBits::kGeometry)) {
+  rebuild_geometry();
+}
+
+// Mask off flags
+dirty_bits &= ~DirtyBits::kGeometry; // Clear geometry bit
+```
+
+## SpanRuntimeState
+
+Tracks runtime version numbers and dirty flags for a single span.
+
+### Fields
+
+<ResponseField name="span_id" type="ObjectId" default="kInvalidObjectId">
+  The span this runtime state tracks. Used as a consistency check.
+</ResponseField>
+
+<ResponseField name="data_version" type="std::uint64_t" default="0">
+  Incremented whenever span authoritative data changes (endpoints, properties). Used to detect when caches need invalidation.
+</ResponseField>
+
+<ResponseField name="geometry_version" type="std::uint64_t" default="0">
+  Version number when geometry (curve tessellation) was last computed. Stored in `CurveCacheEntry::source_version` for mismatch detection.
+</ResponseField>
+
+<ResponseField name="bounds_version" type="std::uint64_t" default="0">
+  Version number when spatial bounds were last computed. Stored in `BoundsCacheEntry::source_version`.
+</ResponseField>
+
+<ResponseField name="render_version" type="std::uint64_t" default="0">
+  Version number when visual details were last computed. Stored in `SpanVisualCacheEntry::source_version`.
+</ResponseField>
+
+<ResponseField name="raycast_version" type="std::uint64_t" default="0">
+  Version number when raycast structures were last built. Used for selection/picking invalidation.
+</ResponseField>
+
+<ResponseField name="dirty_bits" type="DirtyBits" default="kNone">
+  Bit flags indicating which recalc pipelines need to process this span. Cleared as each pipeline completes.
+</ResponseField>
+
+## Version Tracking Flow
+
+When a span is modified:
+
+1. **Edit Operation** - User moves a pole, changing connected port positions
+2. **Bump Data Version** - `data_version++` for affected spans
+3. **Mark Dirty** - Set `DirtyBits::kGeometry | DirtyBits::kBounds | ...`
+4. **Queue for Recalc** - Add `span_id` to `DirtyQueue::geometry_dirty_span_ids`
+5. **Commit** - Process dirty queues in dependency order
+6. **Rebuild Geometry** - Tessellate curve, store result in `CurveCache`
+7. **Update Version** - Copy `data_version` to `geometry_version`, store in `CurveCacheEntry::source_version`
+8. **Clear Dirty Bit** - Remove `DirtyBits::kGeometry` flag
+
+If another edit occurs before commit, step 2 increments `data_version` again, ensuring the next commit detects the mismatch.
+
+## DirtyQueue
+
+Batches span IDs needing recalculation, organized by pipeline stage.
+
+### Fields
+
+<ResponseField name="topology_dirty_span_ids" type="std::vector<ObjectId>" required>
+  Spans needing topology updates (endpoint resolution, index rebuilds).
+</ResponseField>
+
+<ResponseField name="geometry_dirty_span_ids" type="std::vector<ObjectId>" required>
+  Spans needing geometry rebuild (curve tessellation). Processed after topology.
+</ResponseField>
+
+<ResponseField name="bounds_dirty_span_ids" type="std::vector<ObjectId>" required>
+  Spans needing bounds rebuild. Processed after geometry to use latest curve points.
+</ResponseField>
+
+<ResponseField name="render_dirty_span_ids" type="std::vector<ObjectId>" required>
+  Spans needing visual cache rebuild (support structures). Can run in parallel with bounds.
+</ResponseField>
+
+<ResponseField name="raycast_dirty_span_ids" type="std::vector<ObjectId>" required>
+  Spans needing raycast structure rebuild. Typically deferred until user interaction.
+</ResponseField>
+
+## Processing Order
+
+Dirty queues are processed in dependency order during `CoreState::Commit()`:
+
+1. **Topology** - Resolve endpoints, update connection indices
+2. **Geometry** - Tessellate curves (depends on topology)
+3. **Bounds** - Compute AABBs (depends on geometry)
+4. **Render** - Generate visual details (depends on topology)
+5. **Raycast** - Build acceleration structures (depends on geometry/bounds)
+
+This ensures derived caches never reference stale data.
+
+## Querying Runtime State
+
+Use `CoreView::find_span_runtime_state()` to inspect version numbers:
+
+```cpp
+const SpanRuntimeState* state = core_view.find_span_runtime_state(span_id);
+if (state) {
+  // Check if any work is pending
+  if (state->dirty_bits != DirtyBits::kNone) {
+    std::cout << "Span has pending recalc\n";
+  }
+  
+  // Inspect version numbers
+  std::cout << "Data version: " << state->data_version << "\n";
+  std::cout << "Geometry version: " << state->geometry_version << "\n";
+  
+  // Detect stale geometry cache
+  const CurveCacheEntry* curve = core_state.find_curve_cache(span_id);
+  if (curve && curve->source_version != state->geometry_version) {
+    std::cout << "Geometry cache is stale!\n";
+  }
+}
+```
+
+## Use Cases
+
+### Incremental Updates
+```cpp
+// Edit multiple spans
+auto result1 = core_state.MovePole(pole_id_1, new_transform);
+auto result2 = core_state.MovePole(pole_id_2, new_transform);
+
+// Batch commit recalculates all affected spans
+CommitResult commit = core_state.Commit();
+std::cout << "Processed " << commit.recalc_stats.geometry_processed << " spans\n";
+```
+
+### Lazy Evaluation
+```cpp
+CommitOptions options;
+options.run_recalc = false; // Skip recalc, just accumulate dirty flags
+
+for (ObjectId pole_id : large_batch) {
+  core_state.MovePole(pole_id, transforms[pole_id]);
+}
+
+// Commit once at the end
+options.run_recalc = true;
+core_state.Commit(options);
+```
+
+### Debugging Dirty State
+```cpp
+void print_dirty_queue_stats(const DirtyQueue& queue) {
+  std::cout << "Topology: " << queue.topology_dirty_span_ids.size() << "\n";
+  std::cout << "Geometry: " << queue.geometry_dirty_span_ids.size() << "\n";
+  std::cout << "Bounds: " << queue.bounds_dirty_span_ids.size() << "\n";
+  std::cout << "Render: " << queue.render_dirty_span_ids.size() << "\n";
+  std::cout << "Raycast: " << queue.raycast_dirty_span_ids.size() << "\n";
+}
+```
+
+## Related Types
+
+- [CurveCache](/api/cache/curve-cache) - Uses `geometry_version` for invalidation
+- [BoundsCache](/api/cache/bounds-cache) - Uses `bounds_version` for invalidation
+- [VisualCache](/api/cache/visual-cache) - Uses `render_version` for invalidation
+- [CommitResult](/api/core/commit) - Reports recalc statistics
+
+## Source Reference
+
+Defined in `wire/core/core_state.hpp:116-165`

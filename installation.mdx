@@ -1,0 +1,246 @@
+---
+title: Installation
+description: Install and build the Wire C++ library from source
+---
+
+## Overview
+
+Wire is a native C++ library for generating, editing, and validating electric pole and wire networks. The library is game engine-agnostic, with optional viewer support built on raylib and ImGui for visualization during development.
+
+## Requirements
+
+### Build Tools
+
+- **CMake** 3.24 or later
+- **C++ Compiler** with C++20 support
+  - MSVC 2019/2022 (Windows)
+  - GCC 10+ (Linux)
+  - Clang 10+ (macOS/Linux)
+
+### Optional Dependencies
+
+The viewer component requires:
+- **raylib** (automatically fetched by CMake)
+- **ImGui** (automatically fetched by CMake)
+
+<Note>
+The core library has no external dependencies and can be built standalone without the viewer.
+</Note>
+
+## Installation
+
+### Clone the Repository
+
+```bash
+git clone <repository-url> wire
+cd wire
+```
+
+### Build Configuration
+
+Wire uses CMake with the following build options:
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `WIRE_BUILD_VIEWER` | `ON` | Build the lightweight viewer application |
+| `WIRE_ENABLE_FORMAT_TARGETS` | `ON` | Enable clang-format helper targets |
+
+## Build Instructions
+
+<Tabs>
+  <Tab title="Windows (PowerShell)">
+    <Steps>
+      <Step title="Configure the build">
+        Generate build files with CMake:
+        
+        ```powershell
+        cmake -S . -B build -DWIRE_BUILD_VIEWER=ON
+        ```
+        
+        This creates a `build/` directory with Visual Studio solution files.
+      </Step>
+      
+      <Step title="Build the core library">
+        Build the core library and tests:
+        
+        ```powershell
+        cmake --build build --config Debug --target wire_core_tests
+        ```
+        
+        For Release builds:
+        
+        ```powershell
+        cmake --build build --config Release --target wire_core_tests
+        ```
+      </Step>
+      
+      <Step title="Build the viewer (optional)">
+        Build the visualization viewer:
+        
+        ```powershell
+        cmake --build build --config Debug --target wire_viewer
+        ```
+      </Step>
+    </Steps>
+  </Tab>
+  
+  <Tab title="Linux/macOS">
+    <Steps>
+      <Step title="Configure the build">
+        Generate Makefiles with CMake:
+        
+        ```bash
+        cmake -S . -B build -DWIRE_BUILD_VIEWER=ON -DCMAKE_BUILD_TYPE=Debug
+        ```
+      </Step>
+      
+      <Step title="Build the core library">
+        Build the core library and tests:
+        
+        ```bash
+        cmake --build build --target wire_core_tests
+        ```
+        
+        For Release builds:
+        
+        ```bash
+        cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+        cmake --build build --target wire_core_tests
+        ```
+      </Step>
+      
+      <Step title="Build the viewer (optional)">
+        Build the visualization viewer:
+        
+        ```bash
+        cmake --build build --target wire_viewer
+        ```
+      </Step>
+    </Steps>
+  </Tab>
+</Tabs>
+
+## Running Tests
+
+Verify your installation by running the test suite:
+
+<CodeGroup>
+```powershell Windows
+build\core\Debug\wire_core_tests.exe
+```
+
+```bash Linux/macOS
+./build/core/wire_core_tests
+```
+</CodeGroup>
+
+You can also use CTest:
+
+```bash
+cd build
+ctest --output-on-failure
+```
+
+## Running the Viewer
+
+Launch the interactive viewer to visualize pole and wire networks:
+
+<CodeGroup>
+```powershell Windows
+build\viewer\Debug\wire_viewer.exe
+```
+
+```bash Linux/macOS
+./build/viewer/wire_viewer
+```
+</CodeGroup>
+
+The viewer provides:
+- 3D camera navigation
+- Grid and coordinate axis visualization
+- Real-time network editing and validation
+- ImGui debug panels
+
+## Code Formatting (Optional)
+
+Wire includes clang-format integration for code style enforcement:
+
+<Steps>
+  <Step title="Check formatting">
+    Verify code formatting without making changes:
+    
+    ```bash
+    cmake --build build --target format-check
+    ```
+  </Step>
+  
+  <Step title="Apply formatting">
+    Automatically format all source files:
+    
+    ```bash
+    cmake --build build --target format
+    ```
+  </Step>
+</Steps>
+
+<Warning>
+The format targets require `clang-format` to be installed and available in your PATH. On Windows, CMake will search common Visual Studio installation paths automatically.
+</Warning>
+
+## Integration with Your Project
+
+### CMake Integration
+
+To use Wire as a library in your CMake project:
+
+```cmake CMakeLists.txt
+add_subdirectory(path/to/wire/core)
+
+add_executable(my_app main.cpp)
+target_link_libraries(my_app PRIVATE wire_core)
+```
+
+### Include Headers
+
+Include the core state header in your C++ source:
+
+```cpp main.cpp
+#include <wire/core/core_state.hpp>
+
+int main() {
+    wire::core::CoreState state;
+    // Your code here
+    return 0;
+}
+```
+
+## Project Structure
+
+After building, your directory structure will look like:
+
+```text
+wire/
+├── core/              # Core library (data model, editing API, tests)
+│   ├── include/       # Public headers
+│   ├── src/          # Implementation
+│   └── tests/        # Unit tests
+├── viewer/           # Development viewer (raylib + ImGui)
+├── docs/             # Design documentation
+├── build/            # Generated build artifacts
+│   ├── core/
+│   │   └── Debug/wire_core_tests.exe
+│   └── viewer/
+│       └── Debug/wire_viewer.exe
+└── CMakeLists.txt
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Create your first pole network in minutes
+  </Card>
+  <Card title="Core Concepts" icon="book" href="/concepts/architecture">
+    Learn about the data model and architecture
+  </Card>
+</CardGroup>

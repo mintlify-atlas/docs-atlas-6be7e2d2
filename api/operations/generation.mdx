@@ -1,0 +1,574 @@
+---
+title: "Network Generation"
+description: "API reference for automatic pole and span generation along paths and between poles"
+---
+
+## GenerateFromBackboneSpec
+
+Generates a complete network backbone along a path with automatic pole placement and multi-bundle span creation. This is the canonical API for path-based generation.
+
+```cpp
+EditResult<GenerateBundleFromPathResult> GenerateFromBackboneSpec(
+    const BackboneSpec& spec
+);
+```
+
+<ParamField path="spec" type="BackboneSpec" required>
+  Complete specification for backbone generation including path, poles, and bundles
+</ParamField>
+
+**Returns:** `EditResult<GenerateBundleFromPathResult>` containing generated entity IDs
+
+### BackboneSpec Structure
+
+```cpp
+struct BackboneSpec {
+    BackboneInputSpec path;                        // Input polyline
+    double interval_m = 0.0;                       // Pole spacing interval
+    PoleTypeId pole_type_id = kInvalidPoleTypeId;  // Pole template to use
+    std::vector<BackboneBundleSpec> bundles;       // Bundle specifications
+    BackboneGenerationConstraints constraints;     // Generation constraints
+    BackbonePolePlacementOptions pole_placement;   // Pole reuse options
+    PathDirectionMode direction_mode = kAuto;      // Path traversal direction
+};
+```
+
+#### BackboneInputSpec
+
+<ParamField path="path.polyline" type="std::vector<Vec3d>" required>
+  Ordered sequence of 3D points defining the generation path
+</ParamField>
+
+#### Generation Parameters
+
+<ParamField path="interval_m" type="double" required>
+  Distance between poles in meters. Poles are placed at this interval along the path.
+</ParamField>
+
+<ParamField path="pole_type_id" type="PoleTypeId" required>
+  ID of the pole template defining port slots and configuration. Use `kInvalidPoleTypeId` for generic poles.
+</ParamField>
+
+<ParamField path="direction_mode" type="PathDirectionMode" default="kAuto">
+  - `kAuto`: Automatically determine optimal traversal direction
+  - `kForward`: Traverse path from first to last point
+  - `kReverse`: Traverse path from last to first point
+</ParamField>
+
+#### BackboneBundleSpec
+
+Each bundle specification defines a conductor group to generate:
+
+```cpp
+struct BackboneBundleSpec {
+    BundleKind bundle_template_id = BundleKind::kLowVoltage;
+    SpanLayer layer = SpanLayer::kUnknown;
+    int count = 0;  // Only for variable-count templates
+};
+```
+
+<ParamField path="bundle_template_id" type="BundleKind" required>
+  Template ID: `kLowVoltage`, `kHighVoltage`, `kCommunication`, or `kOptical`
+</ParamField>
+
+<ParamField path="layer" type="SpanLayer">
+  Network layer override for the generated spans
+</ParamField>
+
+<ParamField path="count" type="int">
+  Conductor count (only used if template allows variable count)
+</ParamField>
+
+#### BackboneGenerationConstraints
+
+```cpp
+struct BackboneGenerationConstraints {
+    std::vector<Vec3d> avoid_points;
+    double avoid_radius_m = 0.0;
+    double lateral_offset_m = 0.0;
+};
+```
+
+<ParamField path="avoid_points" type="std::vector<Vec3d>">
+  Points to avoid during pole placement
+</ParamField>
+
+<ParamField path="avoid_radius_m" type="double">
+  Exclusion radius around avoid points
+</ParamField>
+
+<ParamField path="lateral_offset_m" type="double">
+  Perpendicular offset from path centerline
+</ParamField>
+
+#### BackbonePolePlacementOptions
+
+```cpp
+struct BackbonePolePlacementOptions {
+    bool pin_endpoints = false;
+    bool pin_vertices = false;
+    bool restrict_reuse_to_session = false;
+    std::uint64_t reuse_session_id = 0;
+};
+```
+
+<ParamField path="pin_endpoints" type="bool" default="false">
+  Force manual placement mode for endpoint poles
+</ParamField>
+
+<ParamField path="pin_vertices" type="bool" default="false">
+  Force manual placement mode for poles at path vertices
+</ParamField>
+
+### GenerateBundleFromPathResult Structure
+
+```cpp
+struct GenerateBundleFromPathResult {
+    ObjectId bundle_id = kInvalidObjectId;            // Primary bundle (legacy)
+    std::vector<ObjectId> bundle_ids;                 // All generated bundles
+    std::vector<ObjectId> generated_span_ids;         // All generated spans
+    std::vector<ObjectId> generated_pole_ids;         // All generated poles
+};
+```
+
+### Example: Single Bundle Generation
+
+```cpp
+wire::core::CoreState state;
+
+// Define path along a road
+wire::core::BackboneSpec spec{};
+spec.path.polyline = {
+    {0.0, 0.0, 0.0},
+    {100.0, 0.0, 0.0},
+    {100.0, 100.0, 0.0},
+    {200.0, 100.0, 0.0}
+};
+spec.interval_m = 30.0;  // Place poles every 30 meters
+spec.pole_type_id = 1;   // Use pole type 1
+
+// Define single low-voltage bundle
+wire::core::BackboneBundleSpec bundle_spec{};
+bundle_spec.bundle_template_id = wire::core::BundleKind::kLowVoltage;
+bundle_spec.layer = wire::core::SpanLayer::kLowVoltage;
+spec.bundles.push_back(bundle_spec);
+
+// Generate network
+auto result = state.GenerateFromBackboneSpec(spec);
+
+if (result.ok) {
+    auto gen = result.value;
+    std::cout << "Generated:" << std::endl;
+    std::cout << "  Poles: " << gen.generated_pole_ids.size() << std::endl;
+    std::cout << "  Spans: " << gen.generated_span_ids.size() << std::endl;
+    std::cout << "  Bundles: " << gen.bundle_ids.size() << std::endl;
+}
+```
+
+### Example: Multi-Bundle Generation
+
+```cpp
+// Generate combined high-voltage and communication network
+wire::core::BackboneSpec spec{};
+spec.path.polyline = {/* path points */};
+spec.interval_m = 40.0;
+spec.pole_type_id = 2;  // Joint-use pole type
+
+// High voltage bundle
+wire::core::BackboneBundleSpec hv_spec{};
+hv_spec.bundle_template_id = wire::core::BundleKind::kHighVoltage;
+hv_spec.layer = wire::core::SpanLayer::kHighVoltage;
+spec.bundles.push_back(hv_spec);
+
+// Communication bundle
+wire::core::BackboneBundleSpec comm_spec{};
+comm_spec.bundle_template_id = wire::core::BundleKind::kCommunication;
+comm_spec.layer = wire::core::SpanLayer::kCommunication;
+spec.bundles.push_back(comm_spec);
+
+auto result = state.GenerateFromBackboneSpec(spec);
+// Creates poles with both HV and comm spans at each segment
+```
+
+---
+
+## AddConnectionByPole
+
+Creates a span connection between two existing poles with automatic port slot selection.
+
+```cpp
+EditResult<AddConnectionByPoleResult> AddConnectionByPole(
+    ObjectId pole_a_id,
+    ObjectId pole_b_id,
+    ConnectionCategory category,
+    const AddConnectionByPoleOptions& options = {}
+);
+```
+
+<ParamField path="pole_a_id" type="ObjectId" required>
+  ID of the first pole
+</ParamField>
+
+<ParamField path="pole_b_id" type="ObjectId" required>
+  ID of the second pole
+</ParamField>
+
+<ParamField path="category" type="ConnectionCategory" required>
+  Connection type: `kHighVoltage`, `kLowVoltage`, `kCommunication`, `kOptical`, or `kDrop`
+</ParamField>
+
+<ParamField path="options" type="AddConnectionByPoleOptions">
+  Advanced options controlling port selection and span properties
+</ParamField>
+
+### AddConnectionByPoleOptions Structure
+
+```cpp
+struct AddConnectionByPoleOptions {
+    SpanKind span_kind = SpanKind::kDistribution;
+    SpanLayer span_layer = SpanLayer::kUnknown;
+    ObjectId bundle_id = kInvalidObjectId;
+    BundleKind bundle_template_id = BundleKind::kLowVoltage;
+    bool use_bundle_template = false;
+    bool auto_create_bundle = true;
+    bool allow_generate_port = true;
+    ConnectionContext connection_context = ConnectionContext::kTrunkContinue;
+    PoleContextKind pole_context_a = PoleContextKind::kStraight;
+    PoleContextKind pole_context_b = PoleContextKind::kStraight;
+    double corner_angle_deg_a = 0.0;
+    double corner_angle_deg_b = 0.0;
+    double corner_turn_sign_a = 0.0;
+    double corner_turn_sign_b = 0.0;
+    ObjectId reference_span_id = kInvalidObjectId;
+    std::uint32_t branch_index = 0;
+    ObjectId preferred_port_a_id = kInvalidObjectId;
+    ObjectId preferred_port_b_id = kInvalidObjectId;
+};
+```
+
+<ParamField path="span_kind" type="SpanKind" default="kDistribution">
+  Type of span to create
+</ParamField>
+
+<ParamField path="bundle_id" type="ObjectId">
+  Existing bundle to use (if not creating new one)
+</ParamField>
+
+<ParamField path="auto_create_bundle" type="bool" default="true">
+  Automatically create bundle if needed
+</ParamField>
+
+<ParamField path="allow_generate_port" type="bool" default="true">
+  Allow automatic port creation if no suitable port exists
+</ParamField>
+
+<ParamField path="connection_context" type="ConnectionContext" default="kTrunkContinue">
+  - `kTrunkContinue`: Straight-through trunk continuation
+  - `kCornerPass`: Corner/angle connection
+  - `kBranchAdd`: Branch connection
+  - `kDropAdd`: Service drop connection
+</ParamField>
+
+<ParamField path="pole_context_a" type="PoleContextKind" default="kStraight">
+  Context at first pole: `kStraight`, `kCorner`, `kBranch`, or `kTerminal`
+</ParamField>
+
+<ParamField path="preferred_port_a_id" type="ObjectId">
+  Specific port to use at pole A (skips slot selection)
+</ParamField>
+
+### AddConnectionByPoleResult Structure
+
+```cpp
+struct AddConnectionByPoleResult {
+    ObjectId span_id = kInvalidObjectId;
+    ObjectId port_a_id = kInvalidObjectId;
+    ObjectId port_b_id = kInvalidObjectId;
+    int slot_a_id = -1;
+    int slot_b_id = -1;
+};
+```
+
+<ResponseField name="span_id" type="ObjectId">
+  ID of the created span
+</ResponseField>
+
+<ResponseField name="port_a_id" type="ObjectId">
+  Port used at pole A (may be newly created)
+</ResponseField>
+
+<ResponseField name="port_b_id" type="ObjectId">
+  Port used at pole B (may be newly created)
+</ResponseField>
+
+<ResponseField name="slot_a_id" type="int">
+  Template slot ID used at pole A (-1 if no template)
+</ResponseField>
+
+<ResponseField name="slot_b_id" type="int">
+  Template slot ID used at pole B (-1 if no template)
+</ResponseField>
+
+### Example
+
+```cpp
+// Connect two poles with automatic port selection
+auto result = state.AddConnectionByPole(
+    pole_a_id,
+    pole_b_id,
+    wire::core::ConnectionCategory::kHighVoltage
+);
+
+if (result.ok) {
+    auto conn = result.value;
+    std::cout << "Created span " << conn.span_id 
+              << " using slots " << conn.slot_a_id 
+              << " and " << conn.slot_b_id << std::endl;
+}
+```
+
+---
+
+## AddDropFromPole
+
+Creates a service drop span from a pole to a free-space target point.
+
+```cpp
+EditResult<AddDropResult> AddDropFromPole(
+    ObjectId source_pole_id,
+    const Vec3d& target_world_position,
+    ConnectionCategory category = ConnectionCategory::kDrop
+);
+```
+
+<ParamField path="source_pole_id" type="ObjectId" required>
+  ID of the source pole
+</ParamField>
+
+<ParamField path="target_world_position" type="Vec3d" required>
+  World-space position of the drop endpoint (e.g., building attachment)
+</ParamField>
+
+<ParamField path="category" type="ConnectionCategory" default="kDrop">
+  Connection type for the drop span
+</ParamField>
+
+**Returns:** `EditResult<AddDropResult>` containing the created span and ports
+
+### AddDropResult Structure
+
+```cpp
+struct AddDropResult {
+    ObjectId span_id = kInvalidObjectId;
+    ObjectId source_port_id = kInvalidObjectId;
+    ObjectId target_port_id = kInvalidObjectId;
+    ObjectId split_port_id = kInvalidObjectId;
+};
+```
+
+### Example
+
+```cpp
+// Add service drop to building
+wire::core::Vec3d building_attachment = {25.0, 15.0, 5.0};
+
+auto drop = state.AddDropFromPole(
+    pole_id,
+    building_attachment,
+    wire::core::ConnectionCategory::kDrop
+);
+
+if (drop.ok) {
+    std::cout << "Drop span created: " << drop.value.span_id << std::endl;
+    std::cout << "Target port at: (" 
+              << building_attachment.x << ", "
+              << building_attachment.y << ", "
+              << building_attachment.z << ")" << std::endl;
+}
+```
+
+---
+
+## AddDropFromSpan
+
+Creates a service drop from a point along an existing span (splits the span first).
+
+```cpp
+EditResult<AddDropResult> AddDropFromSpan(
+    ObjectId source_span_id,
+    double t,
+    const Vec3d& target_world_position,
+    ConnectionCategory category = ConnectionCategory::kDrop
+);
+```
+
+<ParamField path="source_span_id" type="ObjectId" required>
+  ID of the trunk span to tap from
+</ParamField>
+
+<ParamField path="t" type="double" required>
+  Parametric position along span (0.0 to 1.0) where drop connects
+</ParamField>
+
+<ParamField path="target_world_position" type="Vec3d" required>
+  World-space position of the drop endpoint
+</ParamField>
+
+<ParamField path="category" type="ConnectionCategory" default="kDrop">
+  Connection type for the drop span
+</ParamField>
+
+**Returns:** `EditResult<AddDropResult>` containing span and port IDs including the split port
+
+### Example
+
+```cpp
+// Tap a drop from midspan
+auto drop = state.AddDropFromSpan(
+    trunk_span_id,
+    0.5,  // Midpoint of span
+    {30.0, 10.0, 4.0},  // Service endpoint
+    wire::core::ConnectionCategory::kDrop
+);
+
+if (drop.ok) {
+    std::cout << "Split port: " << drop.value.split_port_id << std::endl;
+    std::cout << "Drop span: " << drop.value.span_id << std::endl;
+}
+```
+
+---
+
+## GeneratePolesAlongRoad
+
+Generates poles at regular intervals along a road path without creating spans.
+
+```cpp
+EditResult<std::vector<ObjectId>> GeneratePolesAlongRoad(
+    const RoadSegment& road,
+    double interval,
+    PoleTypeId pole_type_id
+);
+```
+
+<ParamField path="road" type="RoadSegment" required>
+  Road segment with polyline defining the path
+</ParamField>
+
+<ParamField path="interval" type="double" required>
+  Distance between poles in meters
+</ParamField>
+
+<ParamField path="pole_type_id" type="PoleTypeId" required>
+  Pole template to use for generated poles
+</ParamField>
+
+**Returns:** `EditResult<std::vector<ObjectId>>` containing IDs of generated poles
+
+### RoadSegment Structure
+
+```cpp
+struct RoadSegment {
+    RoadId id = 0;
+    std::vector<Vec3d> polyline;
+};
+```
+
+### Example
+
+```cpp
+// Generate poles along road without connecting them
+wire::core::RoadSegment road{};
+road.id = 1;
+road.polyline = {
+    {0.0, 0.0, 0.0},
+    {50.0, 0.0, 0.0},
+    {100.0, 25.0, 0.0}
+};
+
+auto poles = state.GeneratePolesAlongRoad(road, 25.0, pole_type_1);
+
+if (poles.ok) {
+    std::cout << "Generated " << poles.value.size() << " poles" << std::endl;
+    
+    // Connect poles manually if needed
+    for (size_t i = 0; i + 1 < poles.value.size(); ++i) {
+        state.AddConnectionByPole(
+            poles.value[i],
+            poles.value[i + 1],
+            wire::core::ConnectionCategory::kLowVoltage
+        );
+    }
+}
+```
+
+---
+
+## Complete Generation Workflow Example
+
+```cpp
+wire::core::CoreState state;
+
+// 1. Define path from GIS data or user input
+std::vector<wire::core::Vec3d> path_points = {
+    {0.0, 0.0, 0.0},
+    {100.0, 0.0, 0.0},
+    {100.0, 100.0, 0.0},
+    {200.0, 100.0, 0.0},
+    {200.0, 200.0, 0.0}
+};
+
+// 2. Configure backbone generation
+wire::core::BackboneSpec spec{};
+spec.path.polyline = path_points;
+spec.interval_m = 35.0;
+spec.pole_type_id = 1;
+spec.direction_mode = wire::core::PathDirectionMode::kAuto;
+
+// 3. Add high voltage bundle
+wire::core::BackboneBundleSpec hv{};
+hv.bundle_template_id = wire::core::BundleKind::kHighVoltage;
+hv.layer = wire::core::SpanLayer::kHighVoltage;
+spec.bundles.push_back(hv);
+
+// 4. Add communication bundle
+wire::core::BackboneBundleSpec comm{};
+comm.bundle_template_id = wire::core::BundleKind::kCommunication;
+comm.layer = wire::core::SpanLayer::kCommunication;
+spec.bundles.push_back(comm);
+
+// 5. Generate backbone
+auto backbone = state.GenerateFromBackboneSpec(spec);
+
+if (!backbone.ok) {
+    std::cerr << "Generation failed: " << backbone.error << std::endl;
+    return;
+}
+
+// 6. Add service drops to buildings
+std::vector<wire::core::Vec3d> buildings = {
+    {50.0, 20.0, 3.0},
+    {80.0, 15.0, 4.0},
+    {120.0, 110.0, 3.5}
+};
+
+for (const auto& building : buildings) {
+    // Find nearest pole
+    ObjectId nearest_pole = backbone.value.generated_pole_ids[0];
+    // ... (pole finding logic) ...
+    
+    // Create drop
+    state.AddDropFromPole(nearest_pole, building);
+}
+
+// 7. Commit and validate
+auto commit = state.Commit();
+
+if (commit.validation.ok()) {
+    std::cout << "Network generation complete!" << std::endl;
+    std::cout << "Poles: " << backbone.value.generated_pole_ids.size() << std::endl;
+    std::cout << "Spans: " << backbone.value.generated_span_ids.size() << std::endl;
+} else {
+    std::cerr << "Validation errors: " << commit.validation.issues.size() << std::endl;
+}
+```
